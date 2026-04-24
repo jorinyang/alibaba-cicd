@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>静态网站示例</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 40px 20px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      min-height: 100vh;
+    }
+    .container {
+      background: rgba(255,255,255,0.1);
+      backdrop-filter: blur(10px);
+      border-radius: 20px;
+      padding: 40px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+    }
+    h1 { font-size: 2.5em; margin-bottom: 20px; }
+    .info { 
+      background: rgba(255,255,255,0.2); 
+      padding: 20px; 
+      border-radius: 10px; 
+      margin: 20px 0;
+    }
+    .badge {
+      display: inline-block;
+      background: #00d4aa;
+      color: #1a1a2e;
+      padding: 5px 15px;
+      border-radius: 20px;
+      font-size: 0.9em;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🚀 部署成功！</h1>
+    <p class="badge">静态网站</p>
+    
+    <div class="info">
+      <h2>项目信息</h2>
+      <p><strong>类型:</strong> 静态网页</p>
+      <p><strong>部署平台:</strong> 阿里云OSS</p>
+      <p><strong>部署时间:</strong> <span id="time"></span></p>
+    </div>
+    
+    <div class="info">
+      <h2>技术栈</h2>
+      <p>✅ HTML5 + CSS3</p>
+      <p>✅ 阿里云OSS静态托管</p>
+      <p>✅ CDN加速</p>
+    </div>
+    
+    <p>这是你的第一个自动部署项目！</p>
+  </div>
+  
+  <script>
+    document.getElementById('time').textContent = new Date().toLocaleString('zh-CN');
+  </script>
+</body>
+</html>
