@@ -188,14 +188,7 @@ jobs:
           cd projects/${{ matrix.project }}
           npm run build
 
-      - name: Setup ossutil for frontend
-        run: |
-          curl -sL -o ossutil64 https://gosspublic.alicdn.com/ossutil/1.7.19/ossutil64
-          chmod +x ossutil64
-          sudo mv ossutil64 /usr/local/bin/ossutil
-          ossutil config -e "$OSS_ENDPOINT" -i "$ALIYUN_ACCESS_KEY_ID" -k "$ALIYUN_ACCESS_KEY_SECRET"
-
-      - name: Upload to OSS
+      - name: Upload to OSS via Aliyun CLI
         run: |
           PROJECT=${{ matrix.project }}
           
@@ -210,7 +203,7 @@ jobs:
           fi
           
           echo "📤 Uploading $PROJECT to OSS..."
-          ossutil cp -r -f "$BUILD_DIR" "oss://$OSS_BUCKET/$PROJECT/"
+          aliyun oss cp -r "$BUILD_DIR" "oss://$OSS_BUCKET/$PROJECT/" --region cn-hangzhou
           echo "✅ $PROJECT deployed to OSS"
 
       - name: Verify deployment
@@ -237,14 +230,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup ossutil for static
-        run: |
-          curl -sL -o ossutil64 https://gosspublic.alicdn.com/ossutil/1.7.19/ossutil64
-          chmod +x ossutil64
-          sudo mv ossutil64 /usr/local/bin/ossutil
-          ossutil config -e "$OSS_ENDPOINT" -i "$ALIYUN_ACCESS_KEY_ID" -k "$ALIYUN_ACCESS_KEY_SECRET"
-
-      - name: Deploy static projects
+      - name: Deploy static projects via Aliyun CLI
         run: |
           for PROJECT_DIR in projects/*/; do
             PROJECT=$(basename "$PROJECT_DIR")
@@ -261,7 +247,7 @@ jobs:
             if [ ! -f "$PROJECT_DIR/package.json" ] || \
                ! grep -q '"build"' "$PROJECT_DIR/package.json" 2>/dev/null; then
               echo "📤 Uploading static project: $PROJECT"
-              ossutil cp -r -f "$PROJECT_DIR" "oss://$OSS_BUCKET/$PROJECT/"
+              aliyun oss cp -r "$PROJECT_DIR" "oss://$OSS_BUCKET/$PROJECT/" --region cn-hangzhou
               echo "✅ $PROJECT deployed"
             fi
           done
