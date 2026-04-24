@@ -37,16 +37,18 @@ echo "构建目录: $BUILD_DIR"
 # 安装ossutil
 if ! command -v ossutil &> /dev/null; then
   echo "安装ossutil..."
-  wget -q https://gosspublic.alicdn.com/ossutil/1.7.19/ossutil64
+  curl -sL -o ossutil64 http://gosspublic.alicdn.com/ossutil/1.7.19/ossutil64
   chmod 755 ossutil64
-  sudo mv ossutil64 /usr/local/bin/ossutil
+  mkdir -p ~/bin
+  mv ossutil64 ~/bin/ossutil
+  export PATH="$HOME/bin:$PATH"
 fi
 
 # 配置ossutil
-ossutil config -e "$ENDPOINT" -i "$ALIYUN_ACCESS_KEY_ID" -k "$ALIYUN_ACCESS_KEY_SECRET" -L CH
+~/bin/ossutil config -e "$ENDPOINT" -i "$ALIYUN_ACCESS_KEY_ID" -k "$ALIYUN_ACCESS_KEY_SECRET" -L CH -c ~/.ossutilconfig
 
 # 上传构建产物
-ossutil cp -r "$BUILD_DIR" "oss://$BUCKET/$PROJECT_NAME/" --force
+~/bin/ossutil cp -r "$BUILD_DIR" "oss://$BUCKET/$PROJECT_NAME/" --force -c ~/.ossutilconfig
 
 echo "✅ SPA部署完成"
 echo "访问地址: http://$BUCKET.$ENDPOINT/$PROJECT_NAME/"
