@@ -36,16 +36,29 @@ jobs:
       
       - name: Detect changed projects
         id: detect
+        env:
+          ALIYUN_ACCESS_KEY_ID: ${{ secrets.ALIYUN_ACCESS_KEY_ID }}
+          ALIYUN_ACCESS_KEY_SECRET: ${{ secrets.ALIYUN_ACCESS_KEY_SECRET }}
+          OSS_BUCKET: ${{ secrets.OSS_BUCKET }}
+          OSS_ENDPOINT: ${{ secrets.OSS_ENDPOINT }}
         run: |
           if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
             CHANGED_DIRS=$(find projects -mindepth 1 -maxdepth 1 -type d | sed 's|projects/||')
           else
             CHANGED_DIRS=$(git diff --name-only HEAD~1 HEAD | grep "^projects/" | cut -d'/' -f2 | sort -u)
+            # 如果没有检测到变更，部署所有项目
+            if [ -z "$CHANGED_DIRS" ]; then
+              echo "未检测到项目变更，部署所有项目..."
+              CHANGED_DIRS=$(find projects -mindepth 1 -maxdepth 1 -type d | sed 's|projects/||')
+            fi
           fi
           
           echo "projects<<EOF" >> \$GITHUB_OUTPUT
           echo "\$CHANGED_DIRS" >> \$GITHUB_OUTPUT
           echo "EOF" >> \$GITHUB_OUTPUT
+          
+          echo "检测到项目:"
+          echo "\$CHANGED_DIRS"
       
       - name: Deploy projects
         env:
