@@ -1,5 +1,5 @@
 #!/bin/bash
-# 构建并部署SPA到OSS
+# 构建并部署SPA到OSS - 使用阿里云CLI
 
 PROJECT_DIR="$1"
 PROJECT_NAME="$2"
@@ -34,21 +34,24 @@ fi
 
 echo "构建目录: $BUILD_DIR"
 
-# 安装ossutil
-if ! command -v ossutil &> /dev/null; then
-  echo "安装ossutil..."
-  curl -sL -o ossutil64 http://gosspublic.alicdn.com/ossutil/1.7.19/ossutil64
-  chmod 755 ossutil64
+# 使用aliyun CLI上传
+if ! command -v aliyun &> /dev/null; then
+  echo "安装aliyun CLI..."
+  curl -sL -o aliyun-cli.tgz https://aliyuncli.alicdn.com/aliyun-cli-linux-latest-amd64.tgz
+  tar -xzf aliyun-cli.tgz
   mkdir -p ~/bin
-  mv ossutil64 ~/bin/ossutil
+  mv aliyun ~/bin/
   export PATH="$HOME/bin:$PATH"
 fi
 
-# 配置ossutil
-~/bin/ossutil config -e "$ENDPOINT" -i "$ALIYUN_ACCESS_KEY_ID" -k "$ALIYUN_ACCESS_KEY_SECRET" -L CH -c ~/.ossutilconfig
+# 配置凭证
+~/bin/aliyun configure set \
+  --access-key-id "$ALIYUN_ACCESS_KEY_ID" \
+  --access-key-secret "$ALIYUN_ACCESS_KEY_SECRET" \
+  --region cn-hangzhou
 
 # 上传构建产物
-~/bin/ossutil cp -r "$BUILD_DIR" "oss://$BUCKET/$PROJECT_NAME/" --force -c ~/.ossutilconfig
+~/bin/aliyun oss cp "$BUILD_DIR" "oss://$BUCKET/$PROJECT_NAME/" --force
 
 echo "✅ SPA部署完成"
 echo "访问地址: http://$BUCKET.$ENDPOINT/$PROJECT_NAME/"
