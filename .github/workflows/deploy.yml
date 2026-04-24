@@ -31,23 +31,33 @@ jobs:
           node-version: '18'
 
       - name: Install pg client
-        run: npm install -g pg
+        run: |
+          npm init -y
+          npm install pg
 
       - name: Test database connection
         run: |
           node -e "
             const { Pool } = require('pg');
             const pool = new Pool({
-              host: '${{ secrets.DB_HOST }}',
-              port: ${{ secrets.DB_PORT || 5432 }},
-              database: '${{ secrets.DB_NAME }}',
-              user: '${{ secrets.DB_USER }}',
-              password: '${{ secrets.DB_PASSWORD }}',
+              host: process.env.DB_HOST,
+              port: process.env.DB_PORT || 5432,
+              database: process.env.DB_NAME,
+              user: process.env.DB_USER,
+              password: process.env.DB_PASSWORD,
               ssl: { rejectUnauthorized: false }
             });
             pool.query('SELECT NOW() as time, version() as version')
               .then(r => {
                 console.log('✅ Database connected:', r.rows[0].time);
+                console.log('PostgreSQL version:', r.rows[0].version);
+                process.exit(0);
+              })
+              .catch(e => {
+                console.error('❌ Database connection failed:', e.message);
+                process.exit(1);
+              });
+          "
                 console.log('PostgreSQL version:', r.rows[0].version);
                 process.exit(0);
               })
@@ -169,10 +179,9 @@ jobs:
           cd projects/${{ matrix.project }}
           npm run build
 
-      - name: Setup ossutil
+      - name: Setup ossutil for frontend
         run: |
-          curl -sL -o ossutil.zip https://gosspublic.alicdn.com/ossutil/1.7.19/ossutil64.zip
-          unzip -o ossutil.zip
+          curl -sL -o ossutil64 https://gosspublic.alicdn.com/ossutil/1.7.19/ossutil64
           chmod +x ossutil64
           sudo mv ossutil64 /usr/local/bin/ossutil
           ossutil config -e "$OSS_ENDPOINT" -i "$ALIYUN_ACCESS_KEY_ID" -k "$ALIYUN_ACCESS_KEY_SECRET"
@@ -219,10 +228,9 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup ossutil
+      - name: Setup ossutil for static
         run: |
-          curl -sL -o ossutil.zip https://gosspublic.alicdn.com/ossutil/1.7.19/ossutil64.zip
-          unzip -o ossutil.zip
+          curl -sL -o ossutil64 https://gosspublic.alicdn.com/ossutil/1.7.19/ossutil64
           chmod +x ossutil64
           sudo mv ossutil64 /usr/local/bin/ossutil
           ossutil config -e "$OSS_ENDPOINT" -i "$ALIYUN_ACCESS_KEY_ID" -k "$ALIYUN_ACCESS_KEY_SECRET"
