@@ -183,22 +183,19 @@ jobs:
             npm install
           fi
 
-      - name: Setup Aliyun CLI
-        run: |
-          curl -sL -o aliyun-cli.tgz https://aliyuncli.alicdn.com/aliyun-cli-linux-latest-amd64.tgz
-          tar -xzf aliyun-cli.tgz
-          sudo mv aliyun /usr/local/bin/
-          aliyun configure set \
-            --access-key-id "$ALIYUN_ACCESS_KEY_ID" \
-            --access-key-secret "$ALIYUN_ACCESS_KEY_SECRET" \
-            --region cn-hangzhou
-
       - name: Build project
         run: |
           cd projects/${{ matrix.project }}
           npm run build
 
-      - name: Upload to OSS via Aliyun CLI
+      - name: Setup ossutil
+        run: |
+          curl -sL -o ossutil https://gosspublic.alicdn.com/ossutil/1.7.19/ossutil64
+          chmod +x ossutil
+          sudo mv ossutil /usr/local/bin/ossutil
+          ossutil config -e "$OSS_ENDPOINT" -i "$ALIYUN_ACCESS_KEY_ID" -k "$ALIYUN_ACCESS_KEY_SECRET"
+
+      - name: Upload to OSS
         run: |
           PROJECT=${{ matrix.project }}
           
@@ -213,7 +210,7 @@ jobs:
           fi
           
           echo "📤 Uploading $PROJECT to OSS..."
-          aliyun oss cp -r "$BUILD_DIR" "oss://$OSS_BUCKET/$PROJECT/" --region cn-hangzhou
+          ossutil cp -r -f "$BUILD_DIR" "oss://$OSS_BUCKET/$PROJECT/"
           echo "✅ $PROJECT deployed to OSS"
 
       - name: Verify deployment
@@ -240,17 +237,14 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Aliyun CLI
+      - name: Setup ossutil
         run: |
-          curl -sL -o aliyun-cli.tgz https://aliyuncli.alicdn.com/aliyun-cli-linux-latest-amd64.tgz
-          tar -xzf aliyun-cli.tgz
-          sudo mv aliyun /usr/local/bin/
-          aliyun configure set \
-            --access-key-id "$ALIYUN_ACCESS_KEY_ID" \
-            --access-key-secret "$ALIYUN_ACCESS_KEY_SECRET" \
-            --region cn-hangzhou
+          curl -sL -o ossutil https://gosspublic.alicdn.com/ossutil/1.7.19/ossutil64
+          chmod +x ossutil
+          sudo mv ossutil /usr/local/bin/ossutil
+          ossutil config -e "$OSS_ENDPOINT" -i "$ALIYUN_ACCESS_KEY_ID" -k "$ALIYUN_ACCESS_KEY_SECRET"
 
-      - name: Deploy static projects via Aliyun CLI
+      - name: Deploy static projects
         run: |
           for PROJECT_DIR in projects/*/; do
             PROJECT=$(basename "$PROJECT_DIR")
@@ -267,7 +261,7 @@ jobs:
             if [ ! -f "$PROJECT_DIR/package.json" ] || \
                ! grep -q '"build"' "$PROJECT_DIR/package.json" 2>/dev/null; then
               echo "📤 Uploading static project: $PROJECT"
-              aliyun oss cp -r "$PROJECT_DIR" "oss://$OSS_BUCKET/$PROJECT/" --region cn-hangzhou
+              ossutil cp -r -f "$PROJECT_DIR" "oss://$OSS_BUCKET/$PROJECT/"
               echo "✅ $PROJECT deployed"
             fi
           done
