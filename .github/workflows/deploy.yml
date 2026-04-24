@@ -188,13 +188,6 @@ jobs:
           cd projects/${{ matrix.project }}
           npm run build
 
-      - name: Setup ossutil
-        run: |
-          curl -sL -o ossutil https://gosspublic.alicdn.com/ossutil/1.7.19/ossutil64
-          chmod +x ossutil
-          sudo mv ossutil /usr/local/bin/ossutil
-          ossutil config -e "$OSS_ENDPOINT" -i "$ALIYUN_ACCESS_KEY_ID" -k "$ALIYUN_ACCESS_KEY_SECRET"
-
       - name: Upload to OSS
         run: |
           PROJECT=${{ matrix.project }}
@@ -210,7 +203,7 @@ jobs:
           fi
           
           echo "📤 Uploading $PROJECT to OSS..."
-          ossutil cp -r -f "$BUILD_DIR" "oss://$OSS_BUCKET/$PROJECT/"
+          python3 scripts/upload_to_oss.py "$BUILD_DIR" "oss://$OSS_BUCKET/$PROJECT/"
           echo "✅ $PROJECT deployed to OSS"
 
       - name: Verify deployment
@@ -237,13 +230,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup ossutil
-        run: |
-          curl -sL -o ossutil https://gosspublic.alicdn.com/ossutil/1.7.19/ossutil64
-          chmod +x ossutil
-          sudo mv ossutil /usr/local/bin/ossutil
-          ossutil config -e "$OSS_ENDPOINT" -i "$ALIYUN_ACCESS_KEY_ID" -k "$ALIYUN_ACCESS_KEY_SECRET"
-
       - name: Deploy static projects
         run: |
           for PROJECT_DIR in projects/*/; do
@@ -261,7 +247,7 @@ jobs:
             if [ ! -f "$PROJECT_DIR/package.json" ] || \
                ! grep -q '"build"' "$PROJECT_DIR/package.json" 2>/dev/null; then
               echo "📤 Uploading static project: $PROJECT"
-              ossutil cp -r -f "$PROJECT_DIR" "oss://$OSS_BUCKET/$PROJECT/"
+              python3 scripts/upload_to_oss.py "$PROJECT_DIR" "oss://$OSS_BUCKET/$PROJECT/"
               echo "✅ $PROJECT deployed"
             fi
           done
