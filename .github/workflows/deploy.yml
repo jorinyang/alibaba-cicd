@@ -5,63 +5,270 @@ on:
     branches: [main, master]
   workflow_dispatch:
 
+env:
+  ALIYUN_ACCESS_KEY_ID: ${{ secrets.ALIYUN_ACCESS_KEY_ID }}
+  ALIYUN_ACCESS_KEY_SECRET: ${{ secrets.ALIYUN_ACCESS_KEY_SECRET }}
+  OSS_BUCKET: ${{ secrets.OSS_BUCKET }}
+  OSS_ENDPOINT: ${{ secrets.OSS_ENDPOINT }}
+  DB_HOST: ${{ secrets.DB_HOST }}
+  DB_PORT: ${{ secrets.DB_PORT }}
+  DB_NAME: ${{ secrets.DB_NAME }}
+  DB_USER: ${{ secrets.DB_USER }}
+  DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+
 jobs:
-  deploy:
+  # ==================== 阶段1：数据库连接测试 ====================
+  db-test:
     runs-on: ubuntu-latest
-    env:
-      ALIYUN_ACCESS_KEY_ID: ${{ secrets.ALIYUN_ACCESS_KEY_ID }}
-      ALIYUN_ACCESS_KEY_SECRET: ${{ secrets.ALIYUN_ACCESS_KEY_SECRET }}
-      OSS_BUCKET: ${{ secrets.OSS_BUCKET }}
-      OSS_ENDPOINT: ${{ secrets.OSS_ENDPOINT }}
-    
+    name: 🔌 数据库连接测试
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
-      - name: Deploy all projects
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install pg client
+        run: npm install -g pg
+
+      - name: Test database connection
         run: |
-          echo "🚀 开始部署所有项目..."
+          node -e "
+            const { Pool } = require('pg');
+            const pool = new Pool({
+              host: '${{ secrets.DB_HOST }}',
+              port: ${{ secrets.DB_PORT || 5432 }},
+              database: '${{ secrets.DB_NAME }}',
+              user: '${{ secrets.DB_USER }}',
+              password: '${{ secrets.DB_PASSWORD }}',
+              ssl: { rejectUnauthorized: false }
+            });
+            pool.query('SELECT NOW() as time, version() as version')
+              .then(r => {
+                console.log('✅ Database connected:', r.rows[0].time);
+                console.log('PostgreSQL version:', r.rows[0].version);
+                process.exit(0);
+              })
+              .catch(e => {
+                console.error('❌ Database connection failed:', e.message);
+                process.exit(1);
+              });
+          "
+
+  # ==================== 阶段2：部署后端API到FC ====================
+  deploy-api:
+    runs-on: ubuntu-latest
+    name: 🔧 部署后端API
+    needs: db-test
+    strategy:
+      matrix:
+        project: [api-hello, node-api]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Setup Aliyun CLI
+        run: |
+          curl -sL -o aliyun-cli.tgz https://aliyuncli.alicdn.com/aliyun-cli-linux-latest-amd64.tgz
+          tar -xzf aliyun-cli.tgz
+          sudo mv aliyun /usr/local/bin/
+          aliyun configure set \
+            --access-key-id "$ALIYUN_ACCESS_KEY_ID" \
+            --access-key-secret "$ALIYUN_ACCESS_KEY_SECRET" \
+            --region cn-hangzhou
+
+      - name: Install Serverless Devs
+        run: npm install -g @serverless-devs/s
+
+      - name: Configure Serverless Devs
+        run: |
+          s config add \
+            --AccessKeyID "$ALIYUN_ACCESS_KEY_ID" \
+            --AccessKeySecret "$ALIYUN_ACCESS_KEY_SECRET" \
+            -a default
+
+      - name: Deploy ${{ matrix.project }} to FC
+        run: |
+          cd projects/${{ matrix.project }}
           
-          for PROJECT_DIR in projects/*/; do
-            PROJECT=$(basename "$PROJECT_DIR")
-            echo ""
-            echo "========================================"
-            echo "📦 部署项目: $PROJECT"
-            echo "========================================"
-            
-            # 检测项目类型
-            if [ -f "$PROJECT_DIR/package.json" ]; then
-              if grep -q "express\|koa\|fastify" "$PROJECT_DIR/package.json" 2>/dev/null; then
-                TYPE="node-api"
-              else
-                TYPE="node-spa"
-              fi
-            else
-              TYPE="static"
+          # 确保 node_modules 存在
+          if [ -f "package.json" ]; then
+            npm install --production
+          fi
+          
+          # 部署
+          s deploy --use-local
+
+      - name: Get FC endpoint
+        run: |
+          ACCOUNT_ID=$(aliyun sts GetCallerIdentity 2>/dev/null | grep -o '"AccountId":"[^"]*"' | cut -d'"' -f4)
+          echo "FC_ENDPOINT=https://${ACCOUNT_ID}.cn-hangzhou.fcapp.run/${{ matrix.project }}" >> $GITHUB_ENV
+          echo "🔗 API endpoint: https://${ACCOUNT_ID}.cn-hangzhou.fcapp.run/${{ matrix.project }}"
+
+      - name: Health check
+        run: |
+          echo "⏳ Waiting for FC to be ready..."
+          sleep 10
+          
+          for i in {1..5}; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$FC_ENDPOINT/health" || echo "000")
+            if [ "$STATUS" = "200" ]; then
+              echo "✅ Health check passed"
+              exit 0
             fi
-            
-            echo "检测到类型: $TYPE"
-            
-            # 部署（继续执行即使失败）
-            set +e
-            case $TYPE in
-              static)
-                echo "📤 上传静态文件..."
-                bash scripts/deploy-static.sh "$PROJECT_DIR" "$PROJECT"
-                ;;
-              node-spa)
-                echo "🔨 构建并上传..."
-                bash scripts/deploy-spa.sh "$PROJECT_DIR" "$PROJECT"
-                ;;
-              node-api)
-                echo "🔧 部署API..."
-                bash scripts/deploy-api.sh "$PROJECT_DIR" "$PROJECT"
-                ;;
-            esac
-            set -e
-            
-            echo "✅ $PROJECT 处理完成"
+            echo "Attempt $i: HTTP $STATUS, retrying..."
+            sleep 5
           done
           
+          echo "❌ Health check failed after 5 attempts"
+          exit 1
+
+  # ==================== 阶段3：构建并部署前端到OSS ====================
+  deploy-frontend:
+    runs-on: ubuntu-latest
+    name: 🎨 部署前端
+    needs: deploy-api
+    strategy:
+      matrix:
+        project: [workshop-grouping, react-app]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Setup pnpm (for workshop-grouping)
+        if: matrix.project == 'workshop-grouping'
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8
+
+      - name: Install dependencies
+        run: |
+          cd projects/${{ matrix.project }}
+          if [ -f "pnpm-lock.yaml" ]; then
+            pnpm install
+          elif [ -f "package-lock.json" ]; then
+            npm ci
+          else
+            npm install
+          fi
+
+      - name: Build project
+        run: |
+          cd projects/${{ matrix.project }}
+          npm run build
+
+      - name: Setup ossutil
+        run: |
+          curl -sL -o ossutil.zip https://gosspublic.alicdn.com/ossutil/1.7.19/ossutil64.zip
+          unzip -o ossutil.zip
+          chmod +x ossutil64
+          sudo mv ossutil64 /usr/local/bin/ossutil
+          ossutil config -e "$OSS_ENDPOINT" -i "$ALIYUN_ACCESS_KEY_ID" -k "$ALIYUN_ACCESS_KEY_SECRET"
+
+      - name: Upload to OSS
+        run: |
+          PROJECT=${{ matrix.project }}
+          
+          # 检测构建输出目录
+          if [ -d "projects/$PROJECT/dist" ]; then
+            BUILD_DIR="projects/$PROJECT/dist"
+          elif [ -d "projects/$PROJECT/build" ]; then
+            BUILD_DIR="projects/$PROJECT/build"
+          else
+            echo "❌ No build output found for $PROJECT"
+            exit 1
+          fi
+          
+          echo "📤 Uploading $PROJECT to OSS..."
+          ossutil cp -r -f "$BUILD_DIR" "oss://$OSS_BUCKET/$PROJECT/"
+          echo "✅ $PROJECT deployed to OSS"
+
+      - name: Verify deployment
+        run: |
+          PROJECT=${{ matrix.project }}
+          URL="https://$OSS_BUCKET.$OSS_ENDPOINT/$PROJECT/index.html"
+          
+          for i in {1..3}; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$URL" || echo "000")
+            if [ "$STATUS" = "200" ]; then
+              echo "✅ $PROJECT accessible: $URL"
+              exit 0
+            fi
+            sleep 3
+          done
+          
+          echo "⚠️ Could not verify $PROJECT deployment"
+
+  # ==================== 阶段4：部署静态项目 ====================
+  deploy-static:
+    runs-on: ubuntu-latest
+    name: 📄 部署静态项目
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup ossutil
+        run: |
+          curl -sL -o ossutil.zip https://gosspublic.alicdn.com/ossutil/1.7.19/ossutil64.zip
+          unzip -o ossutil.zip
+          chmod +x ossutil64
+          sudo mv ossutil64 /usr/local/bin/ossutil
+          ossutil config -e "$OSS_ENDPOINT" -i "$ALIYUN_ACCESS_KEY_ID" -k "$ALIYUN_ACCESS_KEY_SECRET"
+
+      - name: Deploy static projects
+        run: |
+          for PROJECT_DIR in projects/*/; do
+            PROJECT=$(basename "$PROJECT_DIR")
+            
+            # 跳过已处理的和后端项目
+            if [[ "$PROJECT" == "workshop-grouping" ]] || \
+               [[ "$PROJECT" == "react-app" ]] || \
+               [[ "$PROJECT" == "api-hello" ]] || \
+               [[ "$PROJECT" == "node-api" ]]; then
+              continue
+            fi
+            
+            # 检查是否是静态项目（没有package.json或没有构建脚本）
+            if [ ! -f "$PROJECT_DIR/package.json" ] || \
+               ! grep -q '"build"' "$PROJECT_DIR/package.json" 2>/dev/null; then
+              echo "📤 Uploading static project: $PROJECT"
+              ossutil cp -r -f "$PROJECT_DIR" "oss://$OSS_BUCKET/$PROJECT/"
+              echo "✅ $PROJECT deployed"
+            fi
+          done
+
+  # ==================== 阶段5：通知 ====================
+  notify:
+    runs-on: ubuntu-latest
+    name: 📢 部署通知
+    needs: [deploy-api, deploy-frontend, deploy-static]
+    if: always()
+    steps:
+      - name: Deployment summary
+        run: |
+          echo "========================================"
+          echo "🎉 部署完成！"
+          echo "========================================"
           echo ""
-          echo "🎉 所有项目部署完成！"
+          echo "📊 部署状态:"
+          echo "  数据库测试: ${{ needs.db-test.result }}"
+          echo "  API部署: ${{ needs.deploy-api.result }}"
+          echo "  前端部署: ${{ needs.deploy-frontend.result }}"
+          echo "  静态部署: ${{ needs.deploy-static.result }}"
+          echo ""
+          echo "🔗 访问地址:"
+          echo "  前端: https://$OSS_BUCKET.$OSS_ENDPOINT/workshop-grouping/"
+          echo "  API: https://<account-id>.cn-hangzhou.fcapp.run/node-api"
+          echo "========================================"

@@ -1,0 +1,12 @@
+{
+  "name": "api-hello",
+  "version": "1.0.0",
+  "description": "Example API for Alibaba Cloud CI/CD",
+  "main": "index.js",
+  "scripts": {
+    "dev": "node index.js"
+  },
+  "dependencies": {
+    "pg": "^8.11.3"
+  }
+}
