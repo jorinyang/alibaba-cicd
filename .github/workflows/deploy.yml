@@ -188,6 +188,9 @@ jobs:
           cd projects/${{ matrix.project }}
           npm run build
 
+      - name: Install oss2
+        run: pip install oss2
+
       - name: Upload to OSS
         run: |
           PROJECT=${{ matrix.project }}
@@ -229,6 +232,9 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Install oss2
+        run: pip install oss2
 
       - name: Deploy static projects
         run: |
