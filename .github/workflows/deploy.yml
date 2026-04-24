@@ -1,0 +1,77 @@
+name: Auto Deploy to Alibaba Cloud
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  detect-and-deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Install aliyun-cli
+        run: |
+          curl -O https://aliyuncli.alicdn.com/aliyun-cli-linux-latest-amd64.tgz
+          tar -xzf aliyun-cli-linux-latest-amd64.tgz
+          sudo mv aliyun /usr/local/bin/
+          aliyun --version
+      
+      - name: Configure Aliyun
+        run: |
+          aliyun configure set \
+            --access-key-id ${{ secrets.ALIYUN_ACCESS_KEY_ID }} \
+            --access-key-secret ${{ secrets.ALIYUN_ACCESS_KEY_SECRET }} \
+            --region cn-hangzhou
+      
+      - name: Detect changed projects
+        id: detect
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            CHANGED_DIRS=$(find projects -mindepth 1 -maxdepth 1 -type d | sed 's|projects/||')
+          else
+            CHANGED_DIRS=$(git diff --name-only HEAD~1 HEAD | grep "^projects/" | cut -d'/' -f2 | sort -u)
+          fi
+          
+          echo "projects<<EOF" >> \$GITHUB_OUTPUT
+          echo "\$CHANGED_DIRS" >> \$GITHUB_OUTPUT
+          echo "EOF" >> \$GITHUB_OUTPUT
+      
+      - name: Deploy projects
+        run: |
+          PROJECTS="${{ steps.detect.outputs.projects }}"
+          for PROJECT in \$PROJECTS; do
+            PROJECT_DIR="projects/\$PROJECT"
+            if [ ! -d "\$PROJECT_DIR" ]; then
+              echo "跳过: \$PROJECT_DIR 不存在"
+              continue
+            fi
+            
+            PROJECT_TYPE=$(bash scripts/detect-type.sh "\$PROJECT_DIR")
+            echo "项目: \$PROJECT | 类型: \$PROJECT_TYPE"
+            
+            case \$PROJECT_TYPE in
+              static)
+                bash scripts/deploy-static.sh "\$PROJECT_DIR" "\$PROJECT"
+                ;;
+              node-spa)
+                bash scripts/deploy-spa.sh "\$PROJECT_DIR" "\$PROJECT"
+                ;;
+              node-api)
+                bash scripts/deploy-api.sh "\$PROJECT_DIR" "\$PROJECT"
+                ;;
+              *)
+                echo "未知类型，跳过"
+                ;;
+            esac
+          done
