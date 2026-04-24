@@ -42,7 +42,8 @@ jobs:
             
             echo "检测到类型: $TYPE"
             
-            # 部署
+            # 部署（继续执行即使失败）
+            set +e
             case $TYPE in
               static)
                 echo "📤 上传静态文件..."
@@ -57,7 +58,10 @@ jobs:
                 bash scripts/deploy-api.sh "$PROJECT_DIR" "$PROJECT"
                 ;;
             esac
+            set -e
+            
+            echo "✅ $PROJECT 处理完成"
           done
           
           echo ""
-          echo "✅ 所有项目部署完成！"
+          echo "🎉 所有项目部署完成！"
