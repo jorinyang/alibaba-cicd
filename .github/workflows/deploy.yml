@@ -6,90 +6,58 @@ on:
   workflow_dispatch:
 
 jobs:
-  detect-and-deploy:
+  deploy:
     runs-on: ubuntu-latest
+    env:
+      ALIYUN_ACCESS_KEY_ID: ${{ secrets.ALIYUN_ACCESS_KEY_ID }}
+      ALIYUN_ACCESS_KEY_SECRET: ${{ secrets.ALIYUN_ACCESS_KEY_SECRET }}
+      OSS_BUCKET: ${{ secrets.OSS_BUCKET }}
+      OSS_ENDPOINT: ${{ secrets.OSS_ENDPOINT }}
     
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
       
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-      
-      - name: Install aliyun-cli
+      - name: Deploy all projects
         run: |
-          curl -O https://aliyuncli.alicdn.com/aliyun-cli-linux-latest-amd64.tgz
-          tar -xzf aliyun-cli-linux-latest-amd64.tgz
-          sudo mv aliyun /usr/local/bin/
-          aliyun --version
-      
-      - name: Configure Aliyun
-        run: |
-          aliyun configure set \
-            --access-key-id ${{ secrets.ALIYUN_ACCESS_KEY_ID }} \
-            --access-key-secret ${{ secrets.ALIYUN_ACCESS_KEY_SECRET }} \
-            --region cn-hangzhou
-      
-      - name: Detect changed projects
-        id: detect
-        env:
-          ALIYUN_ACCESS_KEY_ID: ${{ secrets.ALIYUN_ACCESS_KEY_ID }}
-          ALIYUN_ACCESS_KEY_SECRET: ${{ secrets.ALIYUN_ACCESS_KEY_SECRET }}
-          OSS_BUCKET: ${{ secrets.OSS_BUCKET }}
-          OSS_ENDPOINT: ${{ secrets.OSS_ENDPOINT }}
-        run: |
-          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-            CHANGED_DIRS=$(find projects -mindepth 1 -maxdepth 1 -type d | sed 's|projects/||')
-          else
-            CHANGED_DIRS=$(git diff --name-only HEAD~1 HEAD | grep "^projects/" | cut -d'/' -f2 | sort -u)
-            # 如果没有检测到变更，部署所有项目
-            if [ -z "$CHANGED_DIRS" ]; then
-              echo "未检测到项目变更，部署所有项目..."
-              CHANGED_DIRS=$(find projects -mindepth 1 -maxdepth 1 -type d | sed 's|projects/||')
-            fi
-          fi
+          echo "🚀 开始部署所有项目..."
           
-          echo "projects<<EOF" >> \$GITHUB_OUTPUT
-          echo "\$CHANGED_DIRS" >> \$GITHUB_OUTPUT
-          echo "EOF" >> \$GITHUB_OUTPUT
-          
-          echo "检测到项目:"
-          echo "\$CHANGED_DIRS"
-      
-      - name: Deploy projects
-        env:
-          ALIYUN_ACCESS_KEY_ID: ${{ secrets.ALIYUN_ACCESS_KEY_ID }}
-          ALIYUN_ACCESS_KEY_SECRET: ${{ secrets.ALIYUN_ACCESS_KEY_SECRET }}
-          OSS_BUCKET: ${{ secrets.OSS_BUCKET }}
-          OSS_ENDPOINT: ${{ secrets.OSS_ENDPOINT }}
-        run: |
-          PROJECTS="${{ steps.detect.outputs.projects }}"
-          for PROJECT in \$PROJECTS; do
-            PROJECT_DIR="projects/\$PROJECT"
-            if [ ! -d "\$PROJECT_DIR" ]; then
-              echo "跳过: \$PROJECT_DIR 不存在"
-              continue
+          for PROJECT_DIR in projects/*/; do
+            PROJECT=$(basename "$PROJECT_DIR")
+            echo ""
+            echo "========================================"
+            echo "📦 部署项目: $PROJECT"
+            echo "========================================"
+            
+            # 检测项目类型
+            if [ -f "$PROJECT_DIR/package.json" ]; then
+              if grep -q "express\|koa\|fastify" "$PROJECT_DIR/package.json" 2>/dev/null; then
+                TYPE="node-api"
+              else
+                TYPE="node-spa"
+              fi
+            else
+              TYPE="static"
             fi
             
-            PROJECT_TYPE=$(bash scripts/detect-type.sh "\$PROJECT_DIR")
-            echo "项目: \$PROJECT | 类型: \$PROJECT_TYPE"
+            echo "检测到类型: $TYPE"
             
-            case \$PROJECT_TYPE in
+            # 部署
+            case $TYPE in
               static)
-                bash scripts/deploy-static.sh "\$PROJECT_DIR" "\$PROJECT"
+                echo "📤 上传静态文件..."
+                bash scripts/deploy-static.sh "$PROJECT_DIR" "$PROJECT"
                 ;;
               node-spa)
-                bash scripts/deploy-spa.sh "\$PROJECT_DIR" "\$PROJECT"
+                echo "🔨 构建并上传..."
+                bash scripts/deploy-spa.sh "$PROJECT_DIR" "$PROJECT"
                 ;;
               node-api)
-                bash scripts/deploy-api.sh "\$PROJECT_DIR" "\$PROJECT"
-                ;;
-              *)
-                echo "未知类型，跳过"
+                echo "🔧 部署API..."
+                bash scripts/deploy-api.sh "$PROJECT_DIR" "$PROJECT"
                 ;;
             esac
           done
+          
+          echo ""
+          echo "✅ 所有项目部署完成！"
