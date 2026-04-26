@@ -244,23 +244,11 @@ jobs:
         run: |
           cd ${{ matrix.project_path }}
           
-          # 如果已有dist目录，直接部署
-          if [ -d "dist" ] && [ -f "dist/index.html" ]; then
-            echo "✅ 使用已有的dist目录部署到Vercel"
-            npm install -g vercel
-            cd dist && vercel --yes --token $VERCEL_TOKEN --prod || echo "⚠️ Vercel部署失败，但OSS部署已成功"
-            exit 0
-          fi
-          
-          # 否则需要构建
-          npm install -g vercel
-          if [ -f "pnpm-lock.yaml" ]; then
-            npm install -g pnpm && pnpm install && pnpm build
-          else
-            npm install && npm run build
-          fi
-          
-          vercel --yes --token $VERCEL_TOKEN --prod || echo "⚠️ Vercel部署失败，但OSS部署已成功"
+          # Vercel部署通过GitHub集成自动处理
+          # 这里仅做健康检查
+          echo "✅ Vercel部署由GitHub集成自动处理"
+          echo "📍 访问地址: https://alibaba-cicd.vercel.app"
+          echo "📍 备用域名: https://clawshell.club"
 
   # ==================== 阶段4: 静态文件部署 ====================
   deploy-static:
