@@ -244,7 +244,7 @@ jobs:
         run: |
           cd ${{ matrix.project_path }}
           
-          # Vercel部署通过GitHub集成自动处理
+          # Vercel部署由GitHub集成自动处理
           # 这里仅做健康检查
           echo "✅ Vercel部署由GitHub集成自动处理"
           echo "📍 访问地址: https://alibaba-cicd.vercel.app"
