@@ -433,21 +433,15 @@ jobs:
           echo ""
           echo "🚀 执行部署命令..."
           
-          # 尝试最简单的部署命令
           cd dist
           
-          echo "📦 尝试Vercel部署..."
+          echo "📦 使用npx部署..."
           
-          # 首先测试Vercel CLI是否正常工作
-          echo "🔧 Vercel CLI版本: $(vercel --version 2>&1 || echo 'CLI未找到')"
+          # 使用npx代替全局安装
+          npx vercel@latest --yes --token $VERCEL_TOKEN . 2>&1 | tee ../vercel-npx.log
           
-          # 使用最简单的方式部署
-          echo "🚀 执行: vercel --yes --token $VERCEL_TOKEN ."
-          vercel --yes --token $VERCEL_TOKEN . 2>&1 | tee ../vercel-simple.log
-          
-          SIMPLE_RESULT=$?
-          echo "📋 部署退出码: $SIMPLE_RESULT"
-          cat ../vercel-simple.log
+          echo "📋 npx输出:"
+          cat ../vercel-npx.log
           
           echo ""
           echo "📋 部署日志:"
