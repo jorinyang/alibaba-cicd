@@ -433,22 +433,21 @@ jobs:
           echo ""
           echo "🚀 执行部署命令..."
           
-          # 确保.vercel配置在dist目录中可用
-          cp -r .vercel dist/.vercel 2>/dev/null || echo "⚠️ .vercel复制失败或已存在"
-          
+          # 尝试最简单的部署命令
           cd dist
-          echo "📁 当前目录: $(pwd)"
-          echo "📁 .vercel存在: $(test -d .vercel && echo '是' || echo '否')"
-          echo "📁 文件列表（前10个）:"
-          ls | head -10
           
-          # 部署当前目录（dist）内容
-          vercel \
-            --yes \
-            --token $VERCEL_TOKEN \
-            --prod \
-            . \
-            2>&1 | tee ../vercel-deploy.log
+          echo "📦 尝试Vercel部署..."
+          
+          # 首先测试Vercel CLI是否正常工作
+          echo "🔧 Vercel CLI版本: $(vercel --version 2>&1 || echo 'CLI未找到')"
+          
+          # 使用最简单的方式部署
+          echo "🚀 执行: vercel --yes --token $VERCEL_TOKEN ."
+          vercel --yes --token $VERCEL_TOKEN . 2>&1 | tee ../vercel-simple.log
+          
+          SIMPLE_RESULT=$?
+          echo "📋 部署退出码: $SIMPLE_RESULT"
+          cat ../vercel-simple.log
           
           echo ""
           echo "📋 部署日志:"
