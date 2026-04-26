@@ -336,7 +336,6 @@ jobs:
           python3 << 'PYEOF'
           import oss2
           import os
-          import tarfile
 
           auth = oss2.Auth(os.environ['ALIYUN_ACCESS_KEY_ID'], os.environ['ALIYUN_ACCESS_KEY_SECRET'])
           bucket = oss2.Bucket(
@@ -351,15 +350,26 @@ jobs:
           print(f"📥 从OSS下载 {project} 构建产物...")
           os.makedirs(dist_dir, exist_ok=True)
           
+          count = 0
           for obj in oss2.ObjectIterator(bucket, prefix=f"{project}/"):
             if obj.key.endswith('/'):
               continue
             local_file = obj.key.replace(f"{project}/", f"{dist_dir}/")
             os.makedirs(os.path.dirname(local_file), exist_ok=True)
             bucket.get_object_to_file(obj.key, local_file)
-            print(f"  📄 {obj.key} -> {local_file}")
+            count += 1
           
-          print(f"✅ 构建产物已下载到 {dist_dir}/")
+          print(f"✅ 已下载 {count} 个文件到 {dist_dir}/")
+          print(f"📁 目录结构:")
+          for root, dirs, files in os.walk(dist_dir):
+            level = root.replace(dist_dir, '').count(os.sep)
+            indent = '  ' * level
+            print(f"{indent}{os.path.basename(root)}/")
+            subindent = '  ' * (level + 1)
+            for file in files[:5]:  # 只显示前5个文件
+              print(f"{subindent}{file}")
+            if len(files) > 5:
+              print(f"{subindent}... 还有 {len(files)-5} 个文件")
           PYEOF
         env:
           ALIYUN_ACCESS_KEY_ID: ${{ secrets.ALIYUN_ACCESS_KEY_ID }}
@@ -373,15 +383,35 @@ jobs:
       - name: 部署到Vercel
         run: |
           echo "☁️ 开始Vercel部署..."
+          
+          # 确保 .vercel/project.json 存在
+          ls -la .vercel/
+          
+          # 部署dist目录
           cd dist
           
-          # 使用Vercel CLI部署
-          vercel --yes --token $VERCEL_TOKEN \
-            --project alibaba-cicd \
+          # 使用Vercel CLI部署（从dist目录）
+          vercel --yes \
+            --token $VERCEL_TOKEN \
             --prod \
-            --archive=tar
+            --name alibaba-cicd \
+            --cwd . \
+            2>&1 | tee vercel-deploy.log
           
-          echo "✅ Vercel CLI部署完成"
+          DEPLOY_URL=$(grep -o 'https://[^[:space:]]*vercel.app' vercel-deploy.log | tail -1)
+          
+          if [ -n "$DEPLOY_URL" ]; then
+            echo "✅ Vercel部署成功: $DEPLOY_URL"
+            
+            # 验证部署
+            sleep 10
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$DEPLOY_URL" --max-time 10)
+            echo "🌐 部署验证: HTTP $STATUS"
+          else
+            echo "⚠️ 无法获取部署URL"
+            cat vercel-deploy.log
+            exit 1
+          fi
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
 
