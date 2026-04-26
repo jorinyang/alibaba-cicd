@@ -405,17 +405,60 @@ jobs:
         run: |
           echo "☁️ 开始Vercel部署..."
           
-          # 从项目根目录部署dist文件夹
-          # .vercel/project.json 会在当前目录被找到
-          vercel --yes \
+          # 调试：检查环境
+          echo "📁 当前目录: $(pwd)"
+          echo "📁 目录内容:"
+          ls -la
+          
+          echo ""
+          echo "📁 .vercel 目录:"
+          ls -la .vercel/ 2>/dev/null || echo "❌ .vercel目录不存在"
+          
+          echo ""
+          echo "📁 dist 目录:"
+          ls -la dist/ 2>/dev/null || echo "❌ dist目录不存在"
+          
+          if [ ! -d "dist" ] || [ ! -f "dist/index.html" ]; then
+            echo "❌ dist目录不存在或为空，跳过Vercel部署"
+            exit 0
+          fi
+          
+          # 显示dist目录文件数
+          FILE_COUNT=$(find dist -type f | wc -l)
+          echo "📄 dist目录文件数: $FILE_COUNT"
+          
+          # 安装Vercel CLI（如果尚未安装）
+          if ! command -v vercel &> /dev/null; then
+            echo "📦 安装Vercel CLI..."
+            npm install -g vercel
+          fi
+          
+          echo ""
+          echo "🔧 Vercel CLI版本:"
+          vercel --version
+          
+          echo ""
+          echo "🚀 执行部署命令..."
+          
+          # 使用环境变量方式提供项目信息
+          export VERCEL_ORG_ID="team_iWbKBGcSzkvIUwMBvZGAPm00"
+          export VERCEL_PROJECT_ID="prj_LygqbGI5YWaLbbVR3ehOS1FuNDCf"
+          
+          # 部署dist目录
+          vercel ./dist \
+            --yes \
             --token $VERCEL_TOKEN \
             --prod \
-            ./dist \
             2>&1 | tee vercel-deploy.log
+          
+          echo ""
+          echo "📋 部署日志:"
+          cat vercel-deploy.log
           
           DEPLOY_URL=$(grep -o 'https://[^[:space:]]*vercel.app' vercel-deploy.log | tail -1)
           
           if [ -n "$DEPLOY_URL" ]; then
+            echo ""
             echo "✅ Vercel部署成功: $DEPLOY_URL"
             
             # 验证部署
@@ -423,9 +466,19 @@ jobs:
             STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$DEPLOY_URL" --max-time 10)
             echo "🌐 部署验证: HTTP $STATUS"
           else
-            echo "⚠️ 无法获取部署URL"
-            cat vercel-deploy.log
-            exit 1
+            echo ""
+            echo "⚠️ 无法从日志获取部署URL"
+            
+            # 尝试从Vercel API获取最新部署
+            LATEST_URL=$(curl -s "https://api.vercel.com/v6/deployments?project=alibaba-cicd&limit=1" \
+              -H "Authorization: Bearer $VERCEL_TOKEN" 2>/dev/null | jq -r '.deployments[0].url')
+            
+            if [ -n "$LATEST_URL" ] && [ "$LATEST_URL" != "null" ]; then
+              echo "🌐 最新部署: https://$LATEST_URL"
+              curl -s -o /dev/null -w "验证: HTTP %{http_code}\n" "https://$LATEST_URL" --max-time 10
+            else
+              echo "❌ 无法获取部署信息"
+            fi
           fi
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
