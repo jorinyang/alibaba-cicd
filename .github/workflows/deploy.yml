@@ -384,18 +384,12 @@ jobs:
         run: |
           echo "☁️ 开始Vercel部署..."
           
-          # 确保 .vercel/project.json 存在
-          ls -la .vercel/
-          
-          # 部署dist目录
-          cd dist
-          
-          # 使用Vercel CLI部署（从dist目录）
+          # 从项目根目录部署dist文件夹
+          # .vercel/project.json 会在当前目录被找到
           vercel --yes \
             --token $VERCEL_TOKEN \
             --prod \
-            --name alibaba-cicd \
-            --cwd . \
+            ./dist \
             2>&1 | tee vercel-deploy.log
           
           DEPLOY_URL=$(grep -o 'https://[^[:space:]]*vercel.app' vercel-deploy.log | tail -1)
