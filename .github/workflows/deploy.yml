@@ -435,7 +435,14 @@ jobs:
           # 创建 .vercel/output 目录结构（--prebuilt 需要）
           echo "📁 创建 .vercel/output 目录结构..."
           mkdir -p .vercel/output/static
-          cp -r dist/* .vercel/output/static/
+          
+          # 复制 dist 文件到 .vercel/output/static/
+          if [ -d "dist" ] && [ "$(ls -A dist)" ]; then
+            echo "📋 复制 dist 文件到 .vercel/output/static/"
+            cp -r dist/* .vercel/output/static/
+          else
+            echo "⚠️ dist 目录为空或不存在"
+          fi
           
           # 创建 config.json
           cat > .vercel/output/config.json << 'EOF'
