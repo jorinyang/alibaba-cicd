@@ -155,9 +155,6 @@ jobs:
           - project_path: projects/workshop-grouping
             build_cmd: pnpm install && pnpm build
             env_keys: VITE_SUPABASE_URL=VITE_SUPABASE_URL,VITE_SUPABASE_ANON_KEY=VITE_SUPABASE_ANON_KEY
-          - project_path: projects/react-app
-            build_cmd: pnpm install && pnpm build
-            env_keys: VITE_SUPABASE_URL=VITE_SUPABASE_URL,VITE_SUPABASE_ANON_KEY=VITE_SUPABASE_ANON_KEY
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
