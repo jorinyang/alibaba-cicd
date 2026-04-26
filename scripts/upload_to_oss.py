@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
 上传文件/目录到阿里云OSS
-用法: python upload_to_oss.py <local_path> <oss://bucket/prefix/>
+用法: python upload_to_oss.py <local_path> <oss://bucket/prefix/> [endpoint]
+示例: python upload_to_oss.py ./dist oss://bucket-name/prefix/ oss-cn-hongkong.aliyuncs.com
 """
 
 import sys
@@ -28,11 +29,12 @@ def upload_dir(bucket, local_dir, oss_prefix):
 
 def main():
     if len(sys.argv) < 3:
-        print("用法: python upload_to_oss.py <local_path> <oss://bucket/prefix/>")
+        print("用法: python upload_to_oss.py <local_path> <oss://bucket/prefix/> [endpoint]")
         sys.exit(1)
     
     local_path = sys.argv[1]
     oss_url = sys.argv[2]
+    endpoint = sys.argv[3] if len(sys.argv) > 3 else os.environ.get("OSS_ENDPOINT", "oss-cn-hangzhou.aliyuncs.com")
     
     # 解析OSS URL
     # oss://bucket/prefix/
@@ -47,7 +49,6 @@ def main():
     # 从环境变量获取凭证
     access_key_id = os.environ.get("ALIYUN_ACCESS_KEY_ID")
     access_key_secret = os.environ.get("ALIYUN_ACCESS_KEY_SECRET")
-    endpoint = os.environ.get("OSS_ENDPOINT", "oss-cn-hangzhou.aliyuncs.com")
     
     if not access_key_id or not access_key_secret:
         print("错误: 需要环境变量 ALIYUN_ACCESS_KEY_ID 和 ALIYUN_ACCESS_KEY_SECRET")
@@ -57,7 +58,7 @@ def main():
     auth = oss2.Auth(access_key_id, access_key_secret)
     bucket = oss2.Bucket(auth, f"https://{endpoint}", bucket_name)
     
-    print(f"📤 上传到 oss://{bucket_name}/{prefix}")
+    print(f"📤 上传到 oss://{bucket_name}/{prefix} (endpoint: {endpoint})")
     
     if os.path.isfile(local_path):
         oss_key = os.path.join(prefix, os.path.basename(local_path)).replace("\\", "/")
