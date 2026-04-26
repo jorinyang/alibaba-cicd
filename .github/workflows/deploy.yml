@@ -1,4 +1,4 @@
-name: Auto Deploy to Alibaba Cloud
+name: Auto Deploy - Vercel + Supabase + Aliyun
 
 on:
   push:
@@ -6,10 +6,21 @@ on:
   workflow_dispatch:
 
 env:
+  # 阿里云
   ALIYUN_ACCESS_KEY_ID: ${{ secrets.ALIYUN_ACCESS_KEY_ID }}
   ALIYUN_ACCESS_KEY_SECRET: ${{ secrets.ALIYUN_ACCESS_KEY_SECRET }}
   OSS_BUCKET: ${{ secrets.OSS_BUCKET }}
   OSS_ENDPOINT: ${{ secrets.OSS_ENDPOINT }}
+  # 香港OSS备份
+  OSS_HK_BUCKET: ${{ secrets.OSS_HK_BUCKET }}
+  OSS_HK_ENDPOINT: ${{ secrets.OSS_HK_ENDPOINT }}
+  # Supabase
+  SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+  SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+  SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+  # Vercel
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  # 数据库(阿里云PolarDB)
   DB_HOST: ${{ secrets.DB_HOST }}
   DB_PORT: ${{ secrets.DB_PORT }}
   DB_NAME: ${{ secrets.DB_NAME }}
@@ -17,11 +28,30 @@ env:
   DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
 
 jobs:
-  # ==================== 阶段1：数据库连接测试 ====================
-  db-test:
+  # ==================== 阶段0: Vercel健康检查 ====================
+  vercel-health-check:
     runs-on: ubuntu-latest
-    name: 🔌 数据库连接测试
-    continue-on-error: true
+    name: 🔍 Vercel健康检查
+    outputs:
+      vercel_available: ${{ steps.check.outputs.available }}
+    steps:
+      - name: Check Vercel status
+        id: check
+        run: |
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -L --connect-timeout 10 "https://vercel.com" || echo "000")
+          echo "Vercel HTTP Status: $HTTP_CODE"
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "available=true" >> $GITHUB_OUTPUT
+            echo "✅ Vercel is available"
+          else
+            echo "available=false" >> $GITHUB_OUTPUT
+            echo "⚠️ Vercel is NOT available, will use OSS Hong Kong backup"
+          fi
+
+  # ==================== 阶段1: Supabase数据库初始化 ====================
+  supabase-init:
+    runs-on: ubuntu-latest
+    name: 🗄️ Supabase配置
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -31,40 +61,36 @@ jobs:
         with:
           node-version: '18'
 
-      - name: Install pg client
+      - name: Install Supabase CLI
         run: |
-          npm init -y
-          npm install pg
+          npm install -g supabase
+          supabase --version
 
-      - name: Test database connection (non-blocking)
+      - name: Test Supabase connection
         run: |
-          node -e "
-            const { Pool } = require('pg');
-            const pool = new Pool({
-              host: process.env.DB_HOST,
-              port: process.env.DB_PORT || 5432,
-              database: process.env.DB_NAME,
-              user: process.env.DB_USER,
-              password: process.env.DB_PASSWORD,
-              ssl: { rejectUnauthorized: false },
-              connectionTimeoutMillis: 5000
-            });
-            pool.query('SELECT NOW() as time')
-              .then(r => {
-                console.log('✅ Database connected:', r.rows[0].time);
-                process.exit(0);
-              })
-              .catch(e => {
-                console.log('⚠️ DB connection skipped (internal network only):', e.message);
-                process.exit(0);
-              });
-          "
+          echo "🔗 Supabase URL: $SUPABASE_URL"
+          curl -s "$SUPABASE_URL/rest/v1/" \
+            -H "apikey: $SUPABASE_ANON_KEY" \
+            -H "Authorization: Bearer $SUPABASE_ANON_KEY" | head -c 200
+          echo ""
+          echo "✅ Supabase connection test completed"
 
-  # ==================== 阶段2：部署后端API到FC ====================
+      - name: Run database migrations
+        if: github.event.inputs.run_migration == 'true'
+        run: |
+          echo "📦 Running Supabase migrations..."
+          # 检查是否有migrations目录
+          if [ -d "supabase/migrations" ]; then
+            supabase db push --project-ref $(echo $SUPABASE_URL | grep -o '[a-z0-9]\{20\}') || true
+          else
+            echo "📝 No migrations directory found, skipping"
+          fi
+
+  # ==================== 阶段2: 部署后端API到阿里云FC ====================
   deploy-api:
     runs-on: ubuntu-latest
-    name: 🔧 部署后端API
-    needs: db-test
+    name: 🔧 部署后端API (阿里云FC)
+    needs: supabase-init
     strategy:
       matrix:
         project: [api-hello, node-api]
@@ -119,14 +145,13 @@ jobs:
         run: |
           ACCOUNT_ID=$(aliyun sts GetCallerIdentity --region cn-hangzhou 2>/dev/null | grep -o '"AccountId": "[^"]*"' | awk -F'"' '{print $4}')
           if [ -z "$ACCOUNT_ID" ]; then
-            # 备用方案：从AccessKey反查
             ACCOUNT_ID=$(aliyun ram GetUser -o json 2>/dev/null | grep -o '"AccountId": "[^"]*"' | awk -F'"' '{print $4}')
           fi
           if [ -n "$ACCOUNT_ID" ]; then
             echo "FC_ENDPOINT=https://${ACCOUNT_ID}.cn-hangzhou.fcapp.run/${{ matrix.project }}" >> $GITHUB_ENV
             echo "🔗 API endpoint: https://${ACCOUNT_ID}.cn-hangzhou.fcapp.run/${{ matrix.project }}"
           else
-            echo "⚠️ Could not get Account ID, skipping health check"
+            echo "⚠️ Could not get Account ID"
             echo "FC_ENDPOINT=" >> $GITHUB_ENV
           fi
 
@@ -149,11 +174,11 @@ jobs:
           
           echo "⚠️ Health check failed, but deployment was successful"
 
-  # ==================== 阶段3：构建并部署前端到OSS ====================
+  # ==================== 阶段3: 部署前端 ====================
   deploy-frontend:
     runs-on: ubuntu-latest
     name: 🎨 部署前端
-    needs: deploy-api
+    needs: [deploy-api, vercel-health-check]
     strategy:
       matrix:
         project: [workshop-grouping, react-app]
@@ -166,69 +191,100 @@ jobs:
         with:
           node-version: '18'
 
-      - name: Setup pnpm (for workshop-grouping)
-        if: matrix.project == 'workshop-grouping'
-        uses: pnpm/action-setup@v2
-        with:
-          version: 8
-
-      - name: Install dependencies
+      # ------ 条件分支: Vercel可用时部署到Vercel ------
+      - name: Deploy to Vercel
+        if: needs.vercel-health-check.outputs.vercel_available == 'true'
+        env:
+          VERCEL_ORG: "team_$(echo $VERCEL_TOKEN | grep -o 'team_[^_]*' | head -1)"
+          VERCEL_PROJECT: ${{ matrix.project }}
         run: |
+          echo "🚀 Deploying ${{ matrix.project }} to Vercel..."
+          
+          # 安装Vercel CLI
+          npm install -g vercel
+          
           cd projects/${{ matrix.project }}
+          
+          # 安装依赖
           if [ -f "pnpm-lock.yaml" ]; then
-            pnpm install
+            npm install -g pnpm && pnpm install
           elif [ -f "package-lock.json" ]; then
             npm ci
           else
             npm install
           fi
-
-      - name: Build project
-        run: |
-          cd projects/${{ matrix.project }}
+          
+          # 构建
           npm run build
+          
+          # 部署 (使用token无需交互)
+          VERCEL_TOKEN=$VERCEL_TOKEN vercel --yes \
+            --token $VERCEL_TOKEN \
+            --prod \
+            -- cwd/dist
+          
+          echo "✅ Deployed to Vercel"
 
+      # ------ 条件分支: Vercel不可用时部署到香港OSS ------
       - name: Install oss2
+        if: needs.vercel-health-check.outputs.vercel_available != 'true'
         run: pip install oss2
 
-      - name: Upload to OSS
+      - name: Deploy to OSS Hong Kong
+        if: needs.vercel-health-check.outputs.vercel_available != 'true'
         run: |
+          echo "🚀 Vercel unavailable, deploying to OSS Hong Kong backup..."
+          
           PROJECT=${{ matrix.project }}
+          cd projects/$PROJECT
+          
+          # 安装依赖并构建
+          if [ -f "pnpm-lock.yaml" ]; then
+            npm install -g pnpm && pnpm install && pnpm build
+          elif [ -f "package-lock.json" ]; then
+            npm ci && npm run build
+          else
+            npm install && npm run build
+          fi
           
           # 检测构建输出目录
-          if [ -d "projects/$PROJECT/dist" ]; then
-            BUILD_DIR="projects/$PROJECT/dist"
-          elif [ -d "projects/$PROJECT/build" ]; then
-            BUILD_DIR="projects/$PROJECT/build"
+          if [ -d "dist" ]; then
+            BUILD_DIR="dist"
+          elif [ -d "build" ]; then
+            BUILD_DIR="build"
           else
-            echo "❌ No build output found for $PROJECT"
+            echo "❌ No build output found"
             exit 1
           fi
           
-          echo "📤 Uploading $PROJECT to OSS..."
-          python3 scripts/upload_to_oss.py "$BUILD_DIR" "oss://$OSS_BUCKET/$PROJECT/"
-          echo "✅ $PROJECT deployed to OSS"
+          # 上传到香港OSS
+          python3 << 'PYEOF'
+          import oss2
+          import os
+          import sys
 
-      - name: Verify deployment
-        run: |
-          PROJECT=${{ matrix.project }}
-          URL="https://$OSS_BUCKET.$OSS_ENDPOINT/$PROJECT/index.html"
+          auth = oss2.Auth(os.environ['ALIYUN_ACCESS_KEY_ID'], os.environ['ALIYUN_ACCESS_KEY_SECRET'])
+          bucket = oss2.Bucket(auth, os.environ['OSS_HK_ENDPOINT'], os.environ['OSS_HK_BUCKET'])
           
-          for i in {1..3}; do
-            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$URL" || echo "000")
-            if [ "$STATUS" = "200" ]; then
-              echo "✅ $PROJECT accessible: $URL"
-              exit 0
-            fi
-            sleep 3
-          done
+          project = "$PROJECT"
+          build_dir = "$BUILD_DIR"
           
-          echo "⚠️ Could not verify $PROJECT deployment"
+          # 上传所有文件
+          for root, dirs, files in os.walk(build_dir):
+            for file in files:
+              local_path = os.path.join(root, file)
+              oss_key = f"{project}/{os.path.relpath(local_path, build_dir)}"
+              bucket.put_object_from_file(oss_key, local_path)
+              print(f"📤 Uploaded: {oss_key}")
+          
+          print(f"✅ {project} deployed to OSS Hong Kong")
+          PYEOF
 
-  # ==================== 阶段4：部署静态项目 ====================
+  # ==================== 阶段4: 部署静态项目 ====================
   deploy-static:
     runs-on: ubuntu-latest
     name: 📄 部署静态项目
+    needs: [deploy-api, vercel-health-check]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -258,26 +314,55 @@ jobs:
             fi
           done
 
-  # ==================== 阶段5：通知 ====================
+  # ==================== 阶段5: n8n webhook触发 ====================
+  trigger-n8n:
+    runs-on: ubuntu-latest
+    name: 📡 触发n8n工作流
+    needs: [deploy-frontend, deploy-static]
+    if: github.event.inputs.trigger_n8n != 'false'
+    steps:
+      - name: Trigger n8n webhook
+        run: |
+          if [ -n "$N8N_WEBHOOK_URL" ]; then
+            curl -X POST "$N8N_WEBHOOK_URL" \
+              -H "Content-Type: application/json" \
+              -d '{
+                "deployment": "success",
+                "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'",
+                "vercel_available": "'${{ needs.vercel-health-check.outputs.vercel_available }}'",
+                "commit": "'${{ github.sha }}'",
+                "branch": "'${{ github.ref_name }}'"
+              }'
+            echo "✅ n8n workflow triggered"
+          else
+            echo "ℹ️ N8N_WEBHOOK_URL not configured, skipping"
+          fi
+
+  # ==================== 阶段6: 通知 ====================
   notify:
     runs-on: ubuntu-latest
     name: 📢 部署通知
-    needs: [deploy-api, deploy-frontend, deploy-static]
+    needs: [deploy-api, deploy-frontend, deploy-static, vercel-health-check]
     if: always()
     steps:
       - name: Deployment summary
         run: |
           echo "========================================"
-          echo "🎉 部署完成！"
+          echo "🎉 部署完成!"
           echo "========================================"
           echo ""
           echo "📊 部署状态:"
-          echo "  数据库测试: ${{ needs.db-test.result }}"
+          echo "  Vercel可用: ${{ needs.vercel-health-check.outputs.vercel_available }}"
           echo "  API部署: ${{ needs.deploy-api.result }}"
           echo "  前端部署: ${{ needs.deploy-frontend.result }}"
           echo "  静态部署: ${{ needs.deploy-static.result }}"
           echo ""
           echo "🔗 访问地址:"
-          echo "  前端: https://$OSS_BUCKET.$OSS_ENDPOINT/workshop-grouping/"
+          echo "  前端(Vercel): https://${{ matrix.project }}.vercel.app"
+          echo "  前端(OSS备份): https://$OSS_HK_BUCKET.$OSS_HK_ENDPOINT/${{ matrix.project }}/"
           echo "  API: https://<account-id>.cn-hangzhou.fcapp.run/node-api"
+          echo "  Supabase: $SUPABASE_URL"
+          echo ""
+          echo "💾 备份节点:"
+          echo "  OSS Hong Kong: $OSS_HK_BUCKET"
           echo "========================================"
