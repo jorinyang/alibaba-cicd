@@ -177,11 +177,8 @@ jobs:
           echo "📁 当前目录内容:"
           ls -la
           
-          # 如果已有dist目录且完整，直接跳过构建
-          if [ -d "dist" ] && [ -f "dist/index.html" ]; then
-            echo "✅ 使用已有的dist目录，跳过构建"
-            exit 0
-          fi
+          # 清理旧的dist目录
+          rm -rf dist
           
           # 自动检测包管理器
           if [ -f "pnpm-lock.yaml" ]; then
