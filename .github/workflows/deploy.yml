@@ -319,29 +319,24 @@ jobs:
             print(f"✅ 静态项目 {project} 已部署")
           PYEOF
 
-  # ==================== 阶段5: Vercel GitHub触发器 ====================
-  vercel-github-trigger:
+  # ==================== 阶段5: Vercel CLI部署 ====================
+  vercel-deploy:
     runs-on: ubuntu-latest
-    name: ☁️ 触发Vercel部署
+    name: ☁️ Vercel部署
     needs: [deploy-frontend]
     if: needs.deploy-frontend.result == 'success'
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          ref: main
-          fetch-depth: 0
 
-      - name: 下载构建产物
+      - name: 下载dist构建产物
         run: |
           pip install oss2 -q
           
           python3 << 'PYEOF'
           import oss2
           import os
-          import zipfile
           import tarfile
-          import io
 
           auth = oss2.Auth(os.environ['ALIYUN_ACCESS_KEY_ID'], os.environ['ALIYUN_ACCESS_KEY_SECRET'])
           bucket = oss2.Bucket(
@@ -352,63 +347,41 @@ jobs:
           
           project = "workshop-grouping"
           dist_dir = "dist"
-          tarball_path = "dist.tar.gz"
           
           print(f"📥 从OSS下载 {project} 构建产物...")
+          os.makedirs(dist_dir, exist_ok=True)
           
-          # 创建tar.gz
-          with tarfile.open(tarball_path, "w:gz") as tar:
-            # 列出OSS中的所有文件
-            for obj in oss2.ObjectIterator(bucket, prefix=f"{project}/"):
-              if obj.key.endswith('/'):
-                continue
-              local_file = obj.key.replace(f"{project}/", f"{dist_dir}/")
-              os.makedirs(os.path.dirname(local_file), exist_ok=True)
-              bucket.get_object_to_file(obj.key, local_file)
-              tar.add(local_file, arcname=local_file)
-              print(f"  📄 {obj.key}")
+          for obj in oss2.ObjectIterator(bucket, prefix=f"{project}/"):
+            if obj.key.endswith('/'):
+              continue
+            local_file = obj.key.replace(f"{project}/", f"{dist_dir}/")
+            os.makedirs(os.path.dirname(local_file), exist_ok=True)
+            bucket.get_object_to_file(obj.key, local_file)
+            print(f"  📄 {obj.key} -> {local_file}")
           
-          print(f"✅ 构建产物已打包: {tarball_path}")
+          print(f"✅ 构建产物已下载到 {dist_dir}/")
           PYEOF
+        env:
+          ALIYUN_ACCESS_KEY_ID: ${{ secrets.ALIYUN_ACCESS_KEY_ID }}
+          ALIYUN_ACCESS_KEY_SECRET: ${{ secrets.ALIYUN_ACCESS_KEY_SECRET }}
+          OSS_HK_ENDPOINT: ${{ secrets.OSS_HK_ENDPOINT }}
+          OSS_HK_BUCKET: ${{ secrets.OSS_HK_BUCKET }}
 
-      - name: 触发Vercel部署
+      - name: 安装Vercel CLI
+        run: npm install -g vercel
+
+      - name: 部署到Vercel
         run: |
-          echo "☁️ 触发Vercel部署..."
+          echo "☁️ 开始Vercel部署..."
+          cd dist
           
-          RESPONSE=$(curl -s -X POST "https://api.vercel.com/v13/deployments" \
-            -H "Authorization: Bearer $VERCEL_TOKEN" \
-            -H "Content-Type: application/octet-stream" \
-            --data-binary @dist.tar.gz \
-            --max-time 60)
+          # 使用Vercel CLI部署
+          vercel --yes --token $VERCEL_TOKEN \
+            --project alibaba-cicd \
+            --prod \
+            --archive=tar
           
-          echo "📦 Vercel响应: $RESPONSE"
-          
-          DEPLOYMENT_URL=$(echo $RESPONSE | jq -r '.url')
-          DEPLOYMENT_ID=$(echo $RESPONSE | jq -r '.id')
-          
-          if [ "$DEPLOYMENT_URL" != "null" ]; then
-            echo "✅ Vercel部署已触发"
-            echo "🌐 部署URL: https://$DEPLOYMENT_URL"
-            echo "🆔 部署ID: $DEPLOYMENT_ID"
-            
-            # 等待部署完成
-            for i in {1..30}; do
-              STATUS=$(curl -s "https://api.vercel.com/v6/deployments/$DEPLOYMENT_ID" \
-                -H "Authorization: Bearer $VERCEL_TOKEN" | jq -r '.readyState')
-              echo "⏳ 部署状态: $STATUS (尝试 $i/30)"
-              if [ "$STATUS" = "READY" ]; then
-                echo "✅ 部署完成!"
-                break
-              elif [ "$STATUS" = "ERROR" ] || [ "$STATUS" = "CANCELED" ]; then
-                echo "❌ 部署失败: $STATUS"
-                break
-              fi
-              sleep 5
-            done
-          else
-            ERROR=$(echo $RESPONSE | jq -r '.error.message // .message')
-            echo "⚠️ Vercel部署触发失败: $ERROR"
-          fi
+          echo "✅ Vercel CLI部署完成"
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
 
