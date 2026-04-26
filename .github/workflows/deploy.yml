@@ -248,8 +248,7 @@ jobs:
           if [ -d "dist" ] && [ -f "dist/index.html" ]; then
             echo "✅ 使用已有的dist目录部署到Vercel"
             npm install -g vercel
-            cd dist && vercel --yes --token $VERCEL_TOKEN --prod
-            echo "✅ 已部署到Vercel"
+            cd dist && vercel --yes --token $VERCEL_TOKEN --prod || echo "⚠️ Vercel部署失败，但OSS部署已成功"
             exit 0
           fi
           
@@ -261,8 +260,7 @@ jobs:
             npm install && npm run build
           fi
           
-          vercel --yes --token $VERCEL_TOKEN --prod
-          echo "✅ 已部署到Vercel"
+          vercel --yes --token $VERCEL_TOKEN --prod || echo "⚠️ Vercel部署失败，但OSS部署已成功"
 
   # ==================== 阶段4: 静态文件部署 ====================
   deploy-static:
