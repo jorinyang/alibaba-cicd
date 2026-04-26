@@ -419,22 +419,25 @@ jobs:
           echo ""
           echo "🚀 执行部署命令..."
           
-          # 使用环境变量方式提供项目信息
-          export VERCEL_ORG_ID="team_iWbKBGcSzkvIUwMBvZGAPm00"
-          export VERCEL_PROJECT_ID="prj_LygqbGI5YWaLbbVR3ehOS1FuNDCf"
+          # 从dist目录内部部署
+          cd dist
+          echo "📁 当前目录: $(pwd)"
+          echo "📁 文件列表:"
+          ls -la
           
-          # 部署dist目录
-          vercel ./dist \
+          # 部署当前目录（dist）内容
+          vercel \
             --yes \
             --token $VERCEL_TOKEN \
             --prod \
-            2>&1 | tee vercel-deploy.log
+            . \
+            2>&1 | tee ../vercel-deploy.log
           
           echo ""
           echo "📋 部署日志:"
           cat vercel-deploy.log
           
-          DEPLOY_URL=$(grep -o 'https://[^[:space:]]*vercel.app' vercel-deploy.log | tail -1)
+          DEPLOY_URL=$(grep -o 'https://[^[:space:]]*vercel.app' ../vercel-deploy.log | tail -1)
           
           if [ -n "$DEPLOY_URL" ]; then
             echo ""
