@@ -333,6 +333,7 @@ jobs:
         run: |
           pip install oss2 -q
           
+          # 从OSS下载到项目根目录的dist/
           python3 << 'PYEOF'
           import oss2
           import os
@@ -345,7 +346,7 @@ jobs:
           )
           
           project = "workshop-grouping"
-          dist_dir = "dist"
+          dist_dir = "dist"  # 直接下载到当前目录（repo根目录）
           
           print(f"📥 从OSS下载 {project} 构建产物...")
           os.makedirs(dist_dir, exist_ok=True)
@@ -354,22 +355,35 @@ jobs:
           for obj in oss2.ObjectIterator(bucket, prefix=f"{project}/"):
             if obj.key.endswith('/'):
               continue
-            local_file = obj.key.replace(f"{project}/", f"{dist_dir}/")
-            os.makedirs(os.path.dirname(local_file), exist_ok=True)
-            bucket.get_object_to_file(obj.key, local_file)
+            # 移除prefix，只保留相对路径
+            relative_path = obj.key.replace(f"{project}/", "")
+            if not relative_path:
+              continue
+            
+            # 创建必要的子目录
+            local_path = os.path.join(dist_dir, relative_path)
+            local_dir = os.path.dirname(local_path)
+            if local_dir:
+              os.makedirs(local_dir, exist_ok=True)
+            
+            bucket.get_object_to_file(obj.key, local_path)
             count += 1
           
           print(f"✅ 已下载 {count} 个文件到 {dist_dir}/")
-          print(f"📁 目录结构:")
+          
+          # 显示下载的文件结构
+          print("📁 文件结构（前20个）:")
           for root, dirs, files in os.walk(dist_dir):
             level = root.replace(dist_dir, '').count(os.sep)
             indent = '  ' * level
             print(f"{indent}{os.path.basename(root)}/")
             subindent = '  ' * (level + 1)
-            for file in files[:5]:  # 只显示前5个文件
-              print(f"{subindent}{file}")
+            for f in files[:5]:
+              print(f"{subindent}{f}")
             if len(files) > 5:
               print(f"{subindent}... 还有 {len(files)-5} 个文件")
+            if level > 2:  # 只显示前3层
+              break
           PYEOF
         env:
           ALIYUN_ACCESS_KEY_ID: ${{ secrets.ALIYUN_ACCESS_KEY_ID }}
