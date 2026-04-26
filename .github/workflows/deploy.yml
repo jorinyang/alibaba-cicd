@@ -432,6 +432,24 @@ jobs:
           
           echo "📦 使用npx部署..."
           
+          # 创建 .vercel/output 目录结构（--prebuilt 需要）
+          echo "📁 创建 .vercel/output 目录结构..."
+          mkdir -p .vercel/output/static
+          cp -r dist/* .vercel/output/static/
+          
+          # 创建 config.json
+          cat > .vercel/output/config.json << 'EOF'
+          {
+            "version": 3,
+            "routes": [
+              {
+                "src": "/(.*)",
+                "dest": "/static/$1"
+              }
+            ]
+          }
+          EOF
+          
           # 使用 --prebuilt 标志跳过Vercel构建，直接部署静态文件
           echo "📦 使用 --prebuilt 标志部署静态文件..."
           npx vercel@latest --yes --token $VERCEL_TOKEN --prebuilt . 2>&1 | tee ../vercel-npx.log
