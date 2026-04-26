@@ -419,11 +419,14 @@ jobs:
           echo ""
           echo "🚀 执行部署命令..."
           
-          # 从dist目录内部部署
+          # 确保.vercel配置在dist目录中可用
+          cp -r .vercel dist/.vercel 2>/dev/null || echo "⚠️ .vercel复制失败或已存在"
+          
           cd dist
           echo "📁 当前目录: $(pwd)"
-          echo "📁 文件列表:"
-          ls -la
+          echo "📁 .vercel存在: $(test -d .vercel && echo '是' || echo '否')"
+          echo "📁 文件列表（前10个）:"
+          ls | head -10
           
           # 部署当前目录（dist）内容
           vercel \
