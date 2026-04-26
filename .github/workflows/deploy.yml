@@ -1,14 +1,24 @@
-name: Auto Deploy - Vercel + Supabase + Aliyun
+name: Auto Deploy - Vercel + Supabase + Aliyun (Full Stack)
 
 on:
   push:
     branches: [main, master]
   workflow_dispatch:
+    inputs:
+      run_migration:
+        description: 'Run Supabase migrations'
+        required: false
+        default: 'false'
+      trigger_n8n:
+        description: 'Trigger n8n workflow'
+        required: false
+        default: 'true'
 
 env:
   # 阿里云
   ALIYUN_ACCESS_KEY_ID: ${{ secrets.ALIYUN_ACCESS_KEY_ID }}
   ALIYUN_ACCESS_KEY_SECRET: ${{ secrets.ALIYUN_ACCESS_KEY_SECRET }}
+  ALIYUN_ACCOUNT_ID: ${{ secrets.ALIYUN_ACCOUNT_ID }}
   OSS_BUCKET: ${{ secrets.OSS_BUCKET }}
   OSS_ENDPOINT: ${{ secrets.OSS_ENDPOINT }}
   # 香港OSS备份
@@ -61,11 +71,6 @@ jobs:
         with:
           node-version: '18'
 
-      - name: Install Supabase CLI
-        run: |
-          npm install -g supabase
-          supabase --version
-
       - name: Test Supabase connection
         run: |
           echo "🔗 Supabase URL: $SUPABASE_URL"
@@ -79,17 +84,16 @@ jobs:
         if: github.event.inputs.run_migration == 'true'
         run: |
           echo "📦 Running Supabase migrations..."
-          # 检查是否有migrations目录
           if [ -d "supabase/migrations" ]; then
-            supabase db push --project-ref $(echo $SUPABASE_URL | grep -o '[a-z0-9]\{20\}') || true
+            npx supabase db push --project-ref $(echo $SUPABASE_URL | grep -o '[a-z0-9]\{20\}') || true
           else
             echo "📝 No migrations directory found, skipping"
           fi
 
-  # ==================== 阶段2: 部署后端API到阿里云FC ====================
-  deploy-api:
+  # ==================== 阶段2: 部署阿里云FC (杭州) ====================
+  deploy-fc-cn:
     runs-on: ubuntu-latest
-    name: 🔧 部署后端API (阿里云FC)
+    name: 🔧 部署FC (杭州)
     needs: supabase-init
     strategy:
       matrix:
@@ -103,16 +107,6 @@ jobs:
         with:
           node-version: '18'
 
-      - name: Setup Aliyun CLI
-        run: |
-          curl -sL -o aliyun-cli.tgz https://aliyuncli.alicdn.com/aliyun-cli-linux-latest-amd64.tgz
-          tar -xzf aliyun-cli.tgz
-          sudo mv aliyun /usr/local/bin/
-          aliyun configure set \
-            --access-key-id "$ALIYUN_ACCESS_KEY_ID" \
-            --access-key-secret "$ALIYUN_ACCESS_KEY_SECRET" \
-            --region cn-hangzhou
-
       - name: Install Serverless Devs
         run: npm install -g @serverless-devs/s
 
@@ -123,62 +117,110 @@ jobs:
             --AccessKeySecret "$ALIYUN_ACCESS_KEY_SECRET" \
             -a default
 
-      - name: Deploy ${{ matrix.project }} to FC
+      - name: Deploy ${{ matrix.project }} to FC (CN)
         run: |
           cd projects/${{ matrix.project }}
           
-          # 确保 node_modules 存在
           if [ -f "package.json" ]; then
             npm install --production
           fi
           
-          # 用envsubst替换s.yaml中的环境变量
           if [ -f "s.yaml" ]; then
             sudo apt-get install -y gettext-base 2>/dev/null || true
             envsubst < s.yaml > s.yaml.tmp && mv s.yaml.tmp s.yaml
           fi
           
-          # 部署
-          s deploy --use-local
+          s deploy --use-local -y
 
-      - name: Get FC endpoint
+      - name: Get CN FC endpoint
         run: |
-          ACCOUNT_ID=$(aliyun sts GetCallerIdentity --region cn-hangzhou 2>/dev/null | grep -o '"AccountId": "[^"]*"' | awk -F'"' '{print $4}')
-          if [ -z "$ACCOUNT_ID" ]; then
-            ACCOUNT_ID=$(aliyun ram GetUser -o json 2>/dev/null | grep -o '"AccountId": "[^"]*"' | awk -F'"' '{print $4}')
-          fi
-          if [ -n "$ACCOUNT_ID" ]; then
-            echo "FC_ENDPOINT=https://${ACCOUNT_ID}.cn-hangzhou.fcapp.run/${{ matrix.project }}" >> $GITHUB_ENV
-            echo "🔗 API endpoint: https://${ACCOUNT_ID}.cn-hangzhou.fcapp.run/${{ matrix.project }}"
-          else
-            echo "⚠️ Could not get Account ID"
-            echo "FC_ENDPOINT=" >> $GITHUB_ENV
+          if [ -n "$ALIYUN_ACCOUNT_ID" ]; then
+            echo "FC_CN_ENDPOINT=https://${ALIYUN_ACCOUNT_ID}.cn-hangzhou.fcapp.run/${{ matrix.project }}" >> $GITHUB_ENV
+            echo "🔗 CN API: https://${ALIYUN_ACCOUNT_ID}.cn-hangzhou.fcapp.run/${{ matrix.project }}"
           fi
 
-      - name: Health check
-        if: env.FC_ENDPOINT != ''
+      - name: CN FC Health check
         continue-on-error: true
         run: |
-          echo "⏳ Waiting for FC to be ready..."
-          sleep 15
-          
-          for i in {1..5}; do
-            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$FC_ENDPOINT/health" || echo "000")
-            if [ "$STATUS" = "200" ]; then
-              echo "✅ Health check passed"
-              exit 0
-            fi
-            echo "Attempt $i: HTTP $STATUS, retrying..."
-            sleep 5
-          done
-          
-          echo "⚠️ Health check failed, but deployment was successful"
+          if [ -n "$FC_CN_ENDPOINT" ]; then
+            sleep 10
+            for i in {1..5}; do
+              STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$FC_CN_ENDPOINT/health" || echo "000")
+              if [ "$STATUS" = "200" ]; then
+                echo "✅ CN FC Health check passed"
+                exit 0
+              fi
+              sleep 5
+            done
+          fi
 
-  # ==================== 阶段3: 部署前端 ====================
+  # ==================== 阶段3: 部署香港FC ====================
+  deploy-fc-hk:
+    runs-on: ubuntu-latest
+    name: 🌏 部署FC (香港)
+    needs: supabase-init
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install Serverless Devs
+        run: npm install -g @serverless-devs/s
+
+      - name: Configure Serverless Devs for HK
+        run: |
+          s config add \
+            --AccessKeyID "$ALIYUN_ACCESS_KEY_ID" \
+            --AccessKeySecret "$ALIYUN_ACCESS_KEY_SECRET" \
+            --AccountID "$ALIYUN_ACCOUNT_ID" \
+            -a hk-fc
+
+      - name: Deploy fc-hk-api to FC (HK)
+        run: |
+          cd projects/fc-hk-api
+          
+          if [ -f "package.json" ]; then
+            npm install --production
+          fi
+          
+          if [ -f "s.yaml" ]; then
+            sudo apt-get install -y gettext-base 2>/dev/null || true
+            envsubst < s.yaml > s.yaml.tmp && mv s.yaml.tmp s.yaml
+          fi
+          
+          s deploy --access hk-fc -y
+
+      - name: Get HK FC endpoint
+        run: |
+          if [ -n "$ALIYUN_ACCOUNT_ID" ]; then
+            echo "FC_HK_ENDPOINT=https://${ALIYUN_ACCOUNT_ID}.cn-hongkong.fcapp.run/fc-hk-api" >> $GITHUB_ENV
+            echo "🔗 HK API: https://${ALIYUN_ACCOUNT_ID}.cn-hongkong.fcapp.run/fc-hk-api"
+          fi
+
+      - name: HK FC Health check
+        continue-on-error: true
+        run: |
+          if [ -n "$FC_HK_ENDPOINT" ]; then
+            sleep 15
+            for i in {1..5}; do
+              STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$FC_HK_ENDPOINT/api/health" || echo "000")
+              if [ "$STATUS" = "200" ]; then
+                echo "✅ HK FC Health check passed"
+                exit 0
+              fi
+              sleep 5
+            done
+          fi
+
+  # ==================== 阶段4: 部署前端 ====================
   deploy-frontend:
     runs-on: ubuntu-latest
     name: 🎨 部署前端
-    needs: [deploy-api, vercel-health-check]
+    needs: [deploy-fc-cn, deploy-fc-hk, vercel-health-check]
     strategy:
       matrix:
         project: [workshop-grouping, react-app]
@@ -191,41 +233,32 @@ jobs:
         with:
           node-version: '18'
 
-      # ------ 条件分支: Vercel可用时部署到Vercel ------
+      # ------ Vercel可用时部署到Vercel ------
       - name: Deploy to Vercel
         if: needs.vercel-health-check.outputs.vercel_available == 'true'
         env:
-          VERCEL_ORG: "team_$(echo $VERCEL_TOKEN | grep -o 'team_[^_]*' | head -1)"
           VERCEL_PROJECT: ${{ matrix.project }}
         run: |
           echo "🚀 Deploying ${{ matrix.project }} to Vercel..."
-          
-          # 安装Vercel CLI
           npm install -g vercel
           
           cd projects/${{ matrix.project }}
           
-          # 安装依赖
           if [ -f "pnpm-lock.yaml" ]; then
-            npm install -g pnpm && pnpm install
+            npm install -g pnpm && pnpm install && pnpm build
           elif [ -f "package-lock.json" ]; then
-            npm ci
+            npm ci && npm run build
           else
-            npm install
+            npm install && npm run build
           fi
           
-          # 构建
-          npm run build
-          
-          # 部署 (使用token无需交互)
           VERCEL_TOKEN=$VERCEL_TOKEN vercel --yes \
             --token $VERCEL_TOKEN \
-            --prod \
-            -- cwd/dist
+            --prod
           
           echo "✅ Deployed to Vercel"
 
-      # ------ 条件分支: Vercel不可用时部署到香港OSS ------
+      # ------ Vercel不可用时部署到香港OSS ------
       - name: Install oss2
         if: needs.vercel-health-check.outputs.vercel_available != 'true'
         run: pip install oss2
@@ -238,7 +271,6 @@ jobs:
           PROJECT=${{ matrix.project }}
           cd projects/$PROJECT
           
-          # 安装依赖并构建
           if [ -f "pnpm-lock.yaml" ]; then
             npm install -g pnpm && pnpm install && pnpm build
           elif [ -f "package-lock.json" ]; then
@@ -247,21 +279,12 @@ jobs:
             npm install && npm run build
           fi
           
-          # 检测构建输出目录
-          if [ -d "dist" ]; then
-            BUILD_DIR="dist"
-          elif [ -d "build" ]; then
-            BUILD_DIR="build"
-          else
-            echo "❌ No build output found"
-            exit 1
-          fi
+          BUILD_DIR="dist"
+          [ ! -d "dist" ] && BUILD_DIR="build"
           
-          # 上传到香港OSS
           python3 << 'PYEOF'
           import oss2
           import os
-          import sys
 
           auth = oss2.Auth(os.environ['ALIYUN_ACCESS_KEY_ID'], os.environ['ALIYUN_ACCESS_KEY_SECRET'])
           bucket = oss2.Bucket(auth, os.environ['OSS_HK_ENDPOINT'], os.environ['OSS_HK_BUCKET'])
@@ -269,7 +292,6 @@ jobs:
           project = "$PROJECT"
           build_dir = "$BUILD_DIR"
           
-          # 上传所有文件
           for root, dirs, files in os.walk(build_dir):
             for file in files:
               local_path = os.path.join(root, file)
@@ -280,11 +302,11 @@ jobs:
           print(f"✅ {project} deployed to OSS Hong Kong")
           PYEOF
 
-  # ==================== 阶段4: 部署静态项目 ====================
+  # ==================== 阶段5: 部署静态项目 ====================
   deploy-static:
     runs-on: ubuntu-latest
     name: 📄 部署静态项目
-    needs: [deploy-api, vercel-health-check]
+    needs: [deploy-fc-cn, deploy-fc-hk]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -297,15 +319,14 @@ jobs:
           for PROJECT_DIR in projects/*/; do
             PROJECT=$(basename "$PROJECT_DIR")
             
-            # 跳过已处理的和后端项目
             if [[ "$PROJECT" == "workshop-grouping" ]] || \
                [[ "$PROJECT" == "react-app" ]] || \
                [[ "$PROJECT" == "api-hello" ]] || \
-               [[ "$PROJECT" == "node-api" ]]; then
+               [[ "$PROJECT" == "node-api" ]] || \
+               [[ "$PROJECT" == "fc-hk-api" ]]; then
               continue
             fi
             
-            # 检查是否是静态项目（没有package.json或没有构建脚本）
             if [ ! -f "$PROJECT_DIR/package.json" ] || \
                ! grep -q '"build"' "$PROJECT_DIR/package.json" 2>/dev/null; then
               echo "📤 Uploading static project: $PROJECT"
@@ -314,7 +335,7 @@ jobs:
             fi
           done
 
-  # ==================== 阶段5: n8n webhook触发 ====================
+  # ==================== 阶段6: n8n webhook触发 ====================
   trigger-n8n:
     runs-on: ubuntu-latest
     name: 📡 触发n8n工作流
@@ -327,22 +348,26 @@ jobs:
             curl -X POST "$N8N_WEBHOOK_URL" \
               -H "Content-Type: application/json" \
               -d '{
-                "deployment": "success",
+                "event": "deployment_completed",
                 "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'",
                 "vercel_available": "'${{ needs.vercel-health-check.outputs.vercel_available }}'",
+                "fc_cn_deployed": "'${{ needs.deploy-fc-cn.result }}'",
+                "fc_hk_deployed": "'${{ needs.deploy-fc-hk.result }}'",
+                "frontend_deployed": "'${{ needs.deploy-frontend.result }}'",
                 "commit": "'${{ github.sha }}'",
-                "branch": "'${{ github.ref_name }}'"
+                "branch": "'${{ github.ref_name }}'",
+                "repository": "'${{ github.repository }}'"
               }'
             echo "✅ n8n workflow triggered"
           else
             echo "ℹ️ N8N_WEBHOOK_URL not configured, skipping"
           fi
 
-  # ==================== 阶段6: 通知 ====================
+  # ==================== 阶段7: 通知 ====================
   notify:
     runs-on: ubuntu-latest
     name: 📢 部署通知
-    needs: [deploy-api, deploy-frontend, deploy-static, vercel-health-check]
+    needs: [deploy-fc-cn, deploy-fc-hk, deploy-frontend, deploy-static, vercel-health-check]
     if: always()
     steps:
       - name: Deployment summary
@@ -353,14 +378,16 @@ jobs:
           echo ""
           echo "📊 部署状态:"
           echo "  Vercel可用: ${{ needs.vercel-health-check.outputs.vercel_available }}"
-          echo "  API部署: ${{ needs.deploy-api.result }}"
+          echo "  FC杭州: ${{ needs.deploy-fc-cn.result }}"
+          echo "  FC香港: ${{ needs.deploy-fc-hk.result }}"
           echo "  前端部署: ${{ needs.deploy-frontend.result }}"
           echo "  静态部署: ${{ needs.deploy-static.result }}"
           echo ""
           echo "🔗 访问地址:"
           echo "  前端(Vercel): https://${{ matrix.project }}.vercel.app"
-          echo "  前端(OSS备份): https://$OSS_HK_BUCKET.$OSS_HK_ENDPOINT/${{ matrix.project }}/"
-          echo "  API: https://<account-id>.cn-hangzhou.fcapp.run/node-api"
+          echo "  前端(OSS香港): https://clawshell.online/${{ matrix.project }}/"
+          echo "  FC杭州: https://${ALIYUN_ACCOUNT_ID}.cn-hangzhou.fcapp.run/node-api"
+          echo "  FC香港: https://${ALIYUN_ACCOUNT_ID}.cn-hongkong.fcapp.run/fc-hk-api"
           echo "  Supabase: $SUPABASE_URL"
           echo ""
           echo "💾 备份节点:"

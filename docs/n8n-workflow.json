@@ -1,0 +1,215 @@
+{
+  "name": "ClawShell Auto Deploy Workflow",
+  "description": "自动化部署工作流 - 监听GitHub Push，触发Vercel/OSS部署",
+  "nodes": [
+    {
+      "name": "GitHub Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "position": [250, 300],
+      "webhookId": "clawshell-deploy",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "clawshell-deploy",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "outputs": ["main"]
+    },
+    {
+      "name": "Parse Deployment Event",
+      "type": "n8n-nodes-base.set",
+      "position": [450, 300],
+      "parameters": {
+        "values": {
+          "string": [
+            { "name": "event", "value": "={{ $json.body.event }}" },
+            { "name": "vercel_available", "value": "={{ $json.body.vercel_available }}" },
+            { "name": "commit", "value": "={{ $json.body.commit }}" },
+            { "name": "branch", "value": "={{ $json.body.branch }}" },
+            { "name": "repository", "value": "={{ $json.body.repository }}" },
+            { "name": "timestamp", "value": "={{ $json.body.timestamp }}" }
+          ]
+        },
+        "options": {}
+      },
+      "inputs": ["main"],
+      "outputs": ["main"]
+    },
+    {
+      "name": "Vercel Health Check",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [650, 200],
+      "parameters": {
+        "url": "https://api.vercel.com/v6/deployments",
+        "method": "GET",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.VERCEL_TOKEN }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "inputs": ["main"],
+      "outputs": ["main"]
+    },
+    {
+      "name": "Check Vercel Status",
+      "type": "n8n-nodes-base.switch",
+      "position": [850, 200],
+      "parameters": {
+        "dataType": "number",
+        "value1": "={{ $json.statusCode }}",
+        "rules": {
+          "values": [
+            {
+              "operation": "equals",
+              "value2": 200
+            }
+          ]
+        },
+        "fallbackOutput": "fallback"
+      },
+      "inputs": ["main"],
+      "outputs": ["main", "fallback"]
+    },
+    {
+      "name": "Switch Deployment Target",
+      "type": "n8n-nodes-base.switch",
+      "position": [1050, 300],
+      "parameters": {
+        "dataType": "boolean",
+        "value1": "={{ $json.vercel_available }}",
+        "rules": {
+          "values": [
+            {
+              "operation": "equals",
+              "value2": true
+            }
+          ]
+        },
+        "fallbackOutput": "fallback"
+      },
+      "inputs": ["main"],
+      "outputs": ["vercel", "oss"]
+    },
+    {
+      "name": "Deploy to Vercel",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [1250, 150],
+      "parameters": {
+        "url": "https://api.vercel.com/v13/deployments",
+        "method": "POST",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "name",
+              "value": "={{ $json.repository }}"
+            },
+            {
+              "name": "gitSource",
+              "value": {
+                "type": "github",
+                "repo": "={{ $json.repository }}",
+                "ref": "={{ $json.branch }}"
+              }
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.VERCEL_TOKEN }}"
+            }
+          ]
+        }
+      },
+      "inputs": ["vercel"],
+      "outputs": ["main"]
+    },
+    {
+      "name": "Deploy to OSS Hong Kong",
+      "type": "n8n-nodes-base.code",
+      "position": [1250, 450],
+      "parameters": {
+        "jsCode": "// Trigger OSS Hong Kong deployment\n// This node would execute the deployment script\nconst message = {\n  bucket: 'clawshell-backup-hk',\n  endpoint: 'oss-cn-hongkong.aliyuncs.com',\n  action: 'trigger_deployment',\n  commit: $json.commit,\n  timestamp: new Date().toISOString()\n};\n\nreturn [{ json: message }];"
+      },
+      "inputs": ["oss"],
+      "outputs": ["main"]
+    },
+    {
+      "name": "Health Check - FC HK",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [1450, 300],
+      "parameters": {
+        "url": "https://{{ $env.ALIYUN_ACCOUNT_ID }}.cn-hongkong.fcapp.run/fc-hk-api/api/health",
+        "method": "GET",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "inputs": ["main"],
+      "outputs": ["main"]
+    },
+    {
+      "name": "Send Success Notification",
+      "type": "n8n-nodes-base.slack",
+      "position": [1650, 300],
+      "parameters": {
+        "channel": "deployment-alerts",
+        "text": "=: Deployment Completed\n:white_check_mark: Vercel: {{ $json.vercel_available }}\n:globe_with_meridians: FC HK: Healthy\n:package: Commit: {{ $json.commit }}\n:arrow_right: Branch: {{ $json.branch }}",
+        "options": {}
+      },
+      "inputs": ["main"],
+      "outputs": []
+    }
+  ],
+  "connections": {
+    "GitHub Webhook": {
+      "main": [["Parse Deployment Event"]]
+    },
+    "Parse Deployment Event": {
+      "main": [["Vercel Health Check"]]
+    },
+    "Vercel Health Check": {
+      "main": [["Check Vercel Status"]]
+    },
+    "Check Vercel Status": {
+      "main": [["Switch Deployment Target"]],
+      "fallback": [["Switch Deployment Target"]]
+    },
+    "Switch Deployment Target": {
+      "vercel": [["Deploy to Vercel"]],
+      "fallback": [["Deploy to OSS Hong Kong"]]
+    },
+    "Deploy to Vercel": {
+      "main": [["Health Check - FC HK"]]
+    },
+    "Deploy to OSS Hong Kong": {
+      "main": [["Health Check - FC HK"]]
+    },
+    "Health Check - FC HK": {
+      "main": [["Send Success Notification"]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": ["deployment", "ci-cd", "automation"],
+  "triggerCount": 1,
+  "updatedAt": "2026-04-27T02:05:00.000Z",
+  "versionId": "1"
+}
