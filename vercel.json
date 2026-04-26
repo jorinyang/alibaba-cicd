@@ -1,0 +1,6 @@
+{
+  "rootDirectory": "workshop-grouping",
+  "installCommand": "pnpm install",
+  "buildCommand": "pnpm run build",
+  "outputDirectory": "dist"
+}
