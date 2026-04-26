@@ -204,6 +204,8 @@ jobs:
         run: |
           pip install oss2 -q
           
+          cd ${{ matrix.project_path }}
+          
           python3 << 'PYEOF'
           import oss2
           import os
