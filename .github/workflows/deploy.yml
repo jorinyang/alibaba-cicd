@@ -244,11 +244,23 @@ jobs:
         run: |
           cd ${{ matrix.project_path }}
           
-          # Vercel部署由GitHub集成自动处理
-          # 这里仅做健康检查
-          echo "✅ Vercel部署由GitHub集成自动处理"
+          # 安装Vercel CLI
+          npm install -g vercel
+          
+          # 确保项目已关联
+          if [ ! -f ".vercel/project.json" ]; then
+            echo "🔗 关联Vercel项目..."
+            vercel link --yes --token $VERCEL_TOKEN
+          fi
+          
+          # 部署到Vercel（使用本地构建的dist目录）
+          echo "📦 部署到Vercel..."
+          vercel deploy --yes --token $VERCEL_TOKEN --prod
+          
+          echo "✅ Vercel部署完成"
           echo "📍 访问地址: https://alibaba-cicd.vercel.app"
-          echo "📍 备用域名: https://clawshell.club"
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
 
   # ==================== 阶段4: 静态文件部署 ====================
   deploy-static:
