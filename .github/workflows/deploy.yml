@@ -173,6 +173,10 @@ jobs:
           echo "VITE_SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY" >> .env.local
           echo "VITE_API_URL=https://${ALIYUN_ACCOUNT_ID}.cn-hongkong.fcapp.run/fc-hk-api" >> .env.local
           
+          # 显示当前目录内容
+          echo "📁 当前目录内容:"
+          ls -la
+          
           # 如果已有dist目录且完整，直接跳过构建
           if [ -d "dist" ] && [ -f "dist/index.html" ]; then
             echo "✅ 使用已有的dist目录，跳过构建"
