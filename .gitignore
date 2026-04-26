@@ -1,25 +1,26 @@
-# Dependencies
-node_modules/
+# Logs
+logs
 *.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
 
-# Build outputs
-dist/
-build/
-out/
+node_modules
+dist-ssr
+*.local
 
-# Environment variables
-.env
-.env.local
-
-# IDE
-.vscode/
-.idea/
-*.swp
-
-# OS
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
 .DS_Store
-Thumbs.db
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
 
-# Temporary files
-*.tmp
-*.temp
+# Allow dist for CI/CD deployment
+!dist/

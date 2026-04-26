@@ -1,106 +1,61 @@
-# 阿里云Serverless CI/CD
-
-> 全自动部署平台 - 支持静态网站、React、Node.js
-
-## 🚀 快速开始
-
-### 1. 配置GitHub Secrets
-
-在仓库 Settings → Secrets → Actions 中添加：
-
-| Secret名称 | 值 |
-|-----------|-----|
-| `ALIYUN_ACCESS_KEY_ID` | 你的阿里云AccessKey ID |
-| `ALIYUN_ACCESS_KEY_SECRET` | 你的阿里云AccessKey Secret |
-| `OSS_BUCKET` | OSS Bucket名称 |
-| `OSS_ENDPOINT` | OSS Endpoint (如 oss-cn-hangzhou.aliyuncs.com) |
-
-### 2. 创建项目
-
-```bash
-# 静态网站
-mkdir projects/my-static-site
-cd projects/my-static-site
-echo '<h1>Hello World</h1>' > index.html
-
-# 或 React项目
-npx create-react-app projects/my-react-app
-
-# 或 Node.js API
-mkdir projects/my-api
-cd projects/my-api
-npm init -y
-npm install express
-```
-
-### 3. 推送代码
-
-```bash
-git add .
-git commit -m "init project"
-git push origin main
-```
-
-### 4. 自动部署
-
-GitHub Actions会自动检测项目类型并部署到阿里云。
-
+---
+AIGC:
+    ContentProducer: Minimax Agent AI
+    ContentPropagator: Minimax Agent AI
+    Label: AIGC
+    ProduceID: "00000000000000000000000000000000"
+    PropagateID: "00000000000000000000000000000000"
+    ReservedCode1: 30440220791db053abde5430cd94d2a2ed33c870b606821c5897b3357dd39e4a4e91840e0220491b691cf073ee2bff61c41edea95332975907f1edc62464976e5e160522bccd
+    ReservedCode2: 304502204effb71e0cad09cbe26339e3504097d954705c1b7962522eb290d2612fc92b0802210085a19a333ce84efe07d602b5d7bee98ce3f021d6a88723325a0402345bd327c4
 ---
 
-## 📁 项目结构
+# React + TypeScript + Vite
 
-```
-.
-├── .github/
-│   └── workflows/
-│       └── deploy.yml          # CI/CD主配置
-├── scripts/
-│   ├── detect-type.sh          # 项目类型检测
-│   └── deploy.sh              # 部署脚本
-├── projects/                   # 你的项目目录
-│   ├── static-demo/           # 静态网站示例
-│   ├── react-app/             # React应用示例
-│   └── node-api/              # Node.js API示例
-└── docs/
-    ├── ARCHITECTURE.md        # 架构设计
-    └── DEPLOY_GUIDE.md        # 部署指南
-```
+This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
----
+Currently, two official plugins are available:
 
-## 🏗️ 架构
+- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react/README.md) uses [Babel](https://babeljs.io/) for Fast Refresh
+- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
 
-```
-GitHub Repo
-    ↓
-GitHub Actions (自动检测类型)
-    ↓
-┌─────────────────────────────────────┐
-│  静态网站 → OSS + CDN               │
-│  React/Vue → OSS + CDN              │
-│  Node.js API → 函数计算 FC          │
-└─────────────────────────────────────┘
+## Expanding the ESLint configuration
+
+If you are developing a production application, we recommend updating the configuration to enable type aware lint rules:
+
+- Configure the top-level `parserOptions` property like this:
+
+```js
+export default tseslint.config({
+  languageOptions: {
+    // other options...
+    parserOptions: {
+      project: ['./tsconfig.node.json', './tsconfig.app.json'],
+      tsconfigRootDir: import.meta.dirname,
+    },
+  },
+})
 ```
 
----
+- Replace `tseslint.configs.recommended` to `tseslint.configs.recommendedTypeChecked` or `tseslint.configs.strictTypeChecked`
+- Optionally add `...tseslint.configs.stylisticTypeChecked`
+- Install [eslint-plugin-react](https://github.com/jsx-eslint/eslint-plugin-react) and update the config:
 
-## 💰 成本预估
+```js
+// eslint.config.js
+import react from 'eslint-plugin-react'
 
-| 服务 | 月成本 |
-|------|--------|
-| OSS | ~10元 |
-| CDN | ~15元 |
-| 函数计算 | ~20-50元 |
-| **总计** | **~45-75元** |
-
----
-
-## 📖 文档
-
-- [架构设计](docs/ARCHITECTURE.md)
-- [部署指南](docs/DEPLOY_GUIDE.md)
-- [项目类型说明](docs/PROJECT_TYPES.md)
-
----
-
-*由OpenClaw自动生成*
+export default tseslint.config({
+  // Set the react version
+  settings: { react: { version: '18.3' } },
+  plugins: {
+    // Add the react plugin
+    react,
+  },
+  rules: {
+    // other rules...
+    // Enable its recommended rules
+    ...react.configs.recommended.rules,
+    ...react.configs['jsx-runtime'].rules,
+  },
+})
+```

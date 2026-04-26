@@ -152,7 +152,7 @@ jobs:
       matrix:
         include:
           # React/Vue/Vite项目
-          - project_path: projects/workshop-grouping
+          - project_path: .
             build_cmd: pnpm install && pnpm build
             env_keys: VITE_SUPABASE_URL=VITE_SUPABASE_URL,VITE_SUPABASE_ANON_KEY=VITE_SUPABASE_ANON_KEY
     steps:
@@ -221,7 +221,7 @@ jobs:
             os.environ['OSS_HK_BUCKET']
           )
           
-          project = "${{ matrix.project_path }}".split('/')[-1]
+          project = "workshop-grouping"
           build_dir = "dist"
           
           if not os.path.exists(build_dir):
