@@ -432,8 +432,9 @@ jobs:
           
           echo "📦 使用npx部署..."
           
-          # 使用npx部署，指定token和确认
-          npx vercel@latest --yes --token $VERCEL_TOKEN . 2>&1 | tee ../vercel-npx.log
+          # 使用 --prebuilt 标志跳过Vercel构建，直接部署静态文件
+          echo "📦 使用 --prebuilt 标志部署静态文件..."
+          npx vercel@latest --yes --token $VERCEL_TOKEN --prebuilt . 2>&1 | tee ../vercel-npx.log
           
           echo "📋 npx输出:"
           cat ../vercel-npx.log
