@@ -167,18 +167,14 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Prepare environment variables
-        run: |
-          echo "📝 设置环境变量..."
-          # 注入Supabase配置 (Vite需要VITE_前缀)
-          echo "VITE_SUPABASE_URL=$SUPABASE_URL" >> $GITHUB_ENV
-          echo "VITE_SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY" >> $GITHUB_ENV
-          echo "VITE_API_URL=https://${ALIYUN_ACCOUNT_ID}.cn-hongkong.fcapp.run/fc-hk-api" >> $GITHUB_ENV
-          echo "✅ 环境变量已配置"
-
       - name: Build project
         run: |
           cd ${{ matrix.project_path }}
+          
+          # 注入Supabase配置到 .env
+          echo "VITE_SUPABASE_URL=$SUPABASE_URL" > .env.local
+          echo "VITE_SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY" >> .env.local
+          echo "VITE_API_URL=https://${ALIYUN_ACCOUNT_ID}.cn-hongkong.fcapp.run/fc-hk-api" >> .env.local
           
           # 自动检测包管理器
           if [ -f "pnpm-lock.yaml" ]; then
@@ -197,6 +193,9 @@ jobs:
           fi
           
           echo "✅ 构建完成"
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
 
       - name: Deploy to OSS Hong Kong
         run: |
