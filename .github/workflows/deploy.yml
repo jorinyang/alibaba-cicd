@@ -380,27 +380,6 @@ jobs:
       - name: 安装Vercel CLI
         run: npm install -g vercel
 
-      - name: 配置Vercel项目设置
-        run: |
-          echo "⚙️ 配置Vercel项目构建设置..."
-          
-          # 设置项目为静态站点，输出目录为dist
-          curl -s -X PATCH "https://api.vercel.com/v6/projects/alibaba-cicd" \
-            -H "Authorization: Bearer $VERCEL_TOKEN" \
-            -H "Content-Type: application/json" \
-            -d '{
-              "framework": null,
-              "buildCommand": null,
-              "outputDirectory": "dist",
-              "rootDirectory": null,
-              "installCommand": null,
-              "devCommand": null
-            }' 2>/dev/null | jq '{name, outputDirectory}'
-          
-          echo "✅ 项目配置完成"
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-
       - name: 部署到Vercel
         run: |
           echo "☁️ 开始Vercel部署..."
